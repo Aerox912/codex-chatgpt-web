@@ -53,6 +53,7 @@ interface LoginBrowserExit {
 const LOGIN_BROWSER_START_TIMEOUT_MS = 30_000;
 const LOGIN_COMPLETION_TIMEOUT_MS = 10 * 60_000;
 const LOGIN_POLL_INTERVAL_MS = 100;
+const LOGIN_AUTH_POLL_INTERVAL_MS = 1_000;
 const MAX_DEVTOOLS_VERSION_BYTES = 64 * 1024;
 
 function delay(ms: number): Promise<void> {
@@ -190,7 +191,7 @@ async function waitForAuthenticatedTemporaryChat(
     }
     const exited = await Promise.race([
       browserExit,
-      delay(Math.min(LOGIN_POLL_INTERVAL_MS, Math.max(1, deadline - Date.now()))).then(() => undefined),
+      delay(Math.min(LOGIN_AUTH_POLL_INTERVAL_MS, Math.max(1, deadline - Date.now()))).then(() => undefined),
     ]);
     if (exited) throw loginBrowserExitError(exited, "closed before ChatGPT authentication was verified");
   }
@@ -282,25 +283,6 @@ function writeLoginCaptureMarker(
   atomicWriteFile(loginVerificationMarkerPath(storageStatePath), `${JSON.stringify(marker)}\n`);
 }
 
-async function verifyCapturedStateInOwnedBrowser(
-  browser: Browser,
-  browserExit: Promise<LoginBrowserExit>,
-  storageState: Awaited<ReturnType<BrowserContext["storageState"]>>,
-  timeoutMs: number,
-): Promise<void> {
-  const verifierContext = await browser.newContext({ storageState });
-  try {
-    const verifierPage = await verifierContext.newPage();
-    await verifierPage.goto(CHATGPT_TEMPORARY_CHAT_URL, {
-      waitUntil: "domcontentloaded",
-      timeout: timeoutMs,
-    });
-    await waitForAuthenticatedTemporaryChat(verifierContext, browserExit, timeoutMs);
-  } finally {
-    await verifierContext.close();
-  }
-}
-
 export async function inspectBrowserLoginCapabilities(config: AppConfig): Promise<ChatGptWebAccountCapabilities> {
   if (!browserLoginStateExists(config)) throw new Error("ChatGPT login state is missing or unverified");
   const refreshed = await loginToChatGpt(config);
@@ -384,12 +366,6 @@ export async function loginToChatGpt(
     const capabilities = await detectChatGptAccountCapabilities(page);
     const state = await context.storageState();
     const accountSurfaceUrl = page.url();
-    await verifyCapturedStateInOwnedBrowser(
-      browser,
-      browserExit,
-      state,
-      Math.min(60_000, completionTimeoutMs),
-    );
 
     await closeOwnedLoginBrowser(browser, browserExit);
     browserProcessClosed = true;

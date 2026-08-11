@@ -183,14 +183,13 @@ function validateChatGptStorageState(value) {
     ["None", "no_restriction"],
   ]);
   const cookies = [];
+  const partitionedCookies = [];
   for (const raw of value.cookies) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
       throw new Error("System-browser login returned an invalid cookie");
     }
     const domain = boundedLoginStateString(raw.domain, "cookie domain", { allowEmpty: false });
     if (!isAllowedLoginCookieDomain(domain)) continue;
-    // Electron cannot represent CHIPS; never flatten one into an unpartitioned cookie.
-    if (raw.partitionKey !== undefined) continue;
     const name = boundedLoginStateString(raw.name, "cookie name", { allowEmpty: false });
     const cookieValue = boundedLoginStateString(raw.value, "cookie value");
     const cookiePath = boundedLoginStateString(raw.path, "cookie path", { allowEmpty: false });
@@ -206,6 +205,47 @@ function validateChatGptStorageState(value) {
     const hostname = domain.replace(/^\./, "").toLowerCase();
     const normalizedDomain = `${domain.startsWith(".") ? "." : ""}${hostname}`;
     const url = new URL(`https://${hostname}${cookiePath}`).toString();
+    if (raw.partitionKey !== undefined) {
+      const rawPartitionKey = boundedLoginStateString(raw.partitionKey, "cookie partition key", { allowEmpty: false });
+      let partitionKey;
+      try {
+        partitionKey = new URL(rawPartitionKey);
+      } catch {
+        throw new Error("System-browser login state has an invalid cookie partition key");
+      }
+      if (partitionKey.protocol !== "https:"
+        || partitionKey.username
+        || partitionKey.password
+        || partitionKey.port
+        || partitionKey.pathname !== "/"
+        || partitionKey.search
+        || partitionKey.hash) {
+        throw new Error("System-browser login state has an invalid cookie partition key");
+      }
+      // OAuth and account bootstrap can leave allowlisted OpenAI cookies partitioned under
+      // another OpenAI-owned top-level site. Preserve those exact partitions, but ignore a
+      // provider-owned partition rather than importing it into the launcher session.
+      if (!isAllowedLoginCookieDomain(partitionKey.hostname)) continue;
+      if (raw._crHasCrossSiteAncestor !== undefined
+        && typeof raw._crHasCrossSiteAncestor !== "boolean") {
+        throw new Error("System-browser login state has an invalid cookie partition ancestry");
+      }
+      partitionedCookies.push({
+        name,
+        value: cookieValue,
+        domain: normalizedDomain,
+        path: cookiePath,
+        secure: raw.secure,
+        httpOnly: raw.httpOnly,
+        sameSite: raw.sameSite,
+        ...(raw.expires > 0 ? { expires: raw.expires } : {}),
+        partitionKey: {
+          topLevelSite: partitionKey.origin,
+          hasCrossSiteAncestor: raw._crHasCrossSiteAncestor ?? true,
+        },
+      });
+      continue;
+    }
     cookies.push({
       url,
       name,
@@ -218,7 +258,7 @@ function validateChatGptStorageState(value) {
       ...(raw.expires > 0 ? { expirationDate: raw.expires } : {}),
     });
   }
-  if (cookies.length === 0) {
+  if (cookies.length + partitionedCookies.length === 0) {
     throw new Error("System-browser login state contains no ChatGPT/OpenAI cookies");
   }
 
@@ -244,7 +284,26 @@ function validateChatGptStorageState(value) {
   if (localStorage.length > MAX_LOGIN_LOCAL_STORAGE_ENTRIES) {
     throw new Error("System-browser login returned too many ChatGPT local-storage entries");
   }
-  return { cookies, localStorage };
+  return { cookies, partitionedCookies, localStorage };
+}
+
+async function setPartitionedLoginCookies(contents, cookies) {
+  if (cookies.length === 0) return;
+  const devtools = contents.debugger;
+  if (!devtools
+    || typeof devtools.isAttached !== "function"
+    || typeof devtools.attach !== "function"
+    || typeof devtools.sendCommand !== "function"
+    || typeof devtools.detach !== "function") {
+    throw new Error("Owned ChatGPT browser cannot import partitioned login cookies");
+  }
+  const attachedHere = !devtools.isAttached();
+  if (attachedHere) devtools.attach("1.3");
+  try {
+    await devtools.sendCommand("Network.setCookies", { cookies });
+  } finally {
+    if (attachedHere && devtools.isAttached()) devtools.detach();
+  }
 }
 
 function javaScriptLiteral(value) {
@@ -1188,6 +1247,7 @@ class BrowserHost {
         sessionMutated = true;
         await this.clearOwnedChatGptSession();
         for (const cookie of state.cookies) await contents.session.cookies.set(cookie);
+        await setPartitionedLoginCookies(contents, state.partitionedCookies);
         contents.session.flushStorageData();
         await contents.session.cookies.flushStore();
         await contents.loadURL(TEMPORARY_CHAT_URL);
@@ -1288,12 +1348,29 @@ class BrowserHost {
       this.setState({ status: "signed-out", message: "Sign in to ChatGPT", authenticated: false, url });
       return this.snapshot();
     }
-    const probe = (contents) => contents.executeJavaScript(`(() => {
+    const probe = (contents) => contents.executeJavaScript(`(async () => {
       const composer = ${visibleElementScript(COMPOSER_SELECTOR)};
-      return { composer: Boolean(composer), readyState: document.readyState };
-    })()`, true).catch(() => ({ composer: false, readyState: "unknown" }));
+      let authenticated = false;
+      if (composer) {
+        try {
+          const response = await fetch("/api/auth/session", {
+            cache: "no-store",
+            credentials: "same-origin",
+            headers: { accept: "application/json" },
+          });
+          if (response.ok) {
+            const session = await response.json();
+            const user = session && typeof session === "object" && !Array.isArray(session)
+              ? session.user
+              : null;
+            authenticated = Boolean(user && typeof user === "object" && !Array.isArray(user));
+          }
+        } catch {}
+      }
+      return { composer: Boolean(composer), authenticated, readyState: document.readyState };
+    })()`, true).catch(() => ({ composer: false, authenticated: false, readyState: "unknown" }));
     const result = await probe(this.view.webContents);
-    if (result.composer) {
+    if (result.composer && result.authenticated) {
       const wasAuthenticated = this.state.authenticated;
       const availability = this.activeTraceId
         ? { status: "running", message: "ChatGPT is working" }

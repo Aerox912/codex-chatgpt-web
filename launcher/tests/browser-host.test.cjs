@@ -345,6 +345,56 @@ test("concurrent login requests share one system-browser authentication operatio
   assert.equal(BrowserHost.prototype.currentOperation.call(fixture), null);
 });
 
+function authenticationProbeFixture(result) {
+  const scripts = [];
+  return {
+    scripts,
+    state: { authenticated: false, status: "signed-out" },
+    activeTraceId: null,
+    manualOperation: null,
+    view: {
+      webContents: {
+        isDestroyed: () => false,
+        getURL: () => "https://chatgpt.com/?temporary-chat=true",
+        executeJavaScript: async (script) => {
+          scripts.push(script);
+          return result;
+        },
+      },
+    },
+    setState(patch) { this.state = { ...this.state, ...patch }; },
+    snapshot() { return { ...this.state }; },
+    logger: { info() {} },
+  };
+}
+
+test("launcher does not accept the signed-out guest composer as ChatGPT authentication", async () => {
+  const fixture = authenticationProbeFixture({
+    composer: true,
+    authenticated: false,
+    readyState: "complete",
+  });
+
+  const result = await BrowserHost.prototype.probeAuthentication.call(fixture);
+
+  assert.equal(result.authenticated, false);
+  assert.equal(result.status, "signed-out");
+  assert.match(fixture.scripts[0], /\/api\/auth\/session/);
+});
+
+test("launcher accepts a composer only with a signed-in ChatGPT account session", async () => {
+  const fixture = authenticationProbeFixture({
+    composer: true,
+    authenticated: true,
+    readyState: "complete",
+  });
+
+  const result = await BrowserHost.prototype.probeAuthentication.call(fixture);
+
+  assert.equal(result.authenticated, true);
+  assert.equal(result.status, "ready");
+});
+
 test("launcher quit remains gated through Electron import and transfer cleanup", () => {
   const source = fs.readFileSync(require.resolve("../electron/main.cjs"), "utf8");
   assert.match(
@@ -419,7 +469,7 @@ test("launcher shutdown persists ChatGPT DOM storage and cookies before browser 
   assert.deepEqual(calls, ["storage", "cookies"]);
 });
 
-test("system-browser storage transfer imports only allowlisted ChatGPT/OpenAI state", async () => {
+test("system-browser storage transfer keeps allowlisted partitioned cookies isolated", async () => {
   const validated = validateChatGptStorageState({
     cookies: [
       {
@@ -431,7 +481,8 @@ test("system-browser storage transfer imports only allowlisted ChatGPT/OpenAI st
         httpOnly: true,
         secure: true,
         sameSite: "None",
-        partitionKey: "https://chatgpt.com",
+        partitionKey: "https://auth.openai.com",
+        _crHasCrossSiteAncestor: false,
       },
       {
         name: "session",
@@ -471,15 +522,18 @@ test("system-browser storage transfer imports only allowlisted ChatGPT/OpenAI st
   });
 
   assert.deepEqual(validated.cookies.map((cookie) => cookie.name), ["session", "__Host-session"]);
+  assert.deepEqual(validated.partitionedCookies.map((cookie) => cookie.name), ["partitioned-auxiliary"]);
+  assert.deepEqual(validated.partitionedCookies[0].partitionKey, {
+    topLevelSite: "https://auth.openai.com",
+    hasCrossSiteAncestor: false,
+  });
   assert.equal(validated.cookies[0].domain, ".chatgpt.com");
   assert.equal(Object.hasOwn(validated.cookies[1], "domain"), false);
   assert.deepEqual(validated.localStorage, [{ name: "theme", value: "dark" }]);
 });
 
-test("system-browser storage transfer fails closed when only partitioned cookies remain", () => {
-  assert.throws(
-    () =>
-      validateChatGptStorageState({
+test("system-browser storage transfer accepts only allowlisted partitioned cookies", () => {
+  const validated = validateChatGptStorageState({
         cookies: [
           {
             name: "partitioned-chatgpt",
@@ -505,9 +559,57 @@ test("system-browser storage transfer fails closed when only partitioned cookies
           },
         ],
         origins: [],
-      }),
-    /contains no ChatGPT\/OpenAI cookies/,
-  );
+      });
+  assert.deepEqual(validated.cookies, []);
+  assert.deepEqual(validated.partitionedCookies.map((cookie) => cookie.name), [
+    "partitioned-chatgpt",
+    "partitioned-openai",
+  ]);
+});
+
+test("system-browser storage transfer skips a foreign provider partition", () => {
+  const validated = validateChatGptStorageState({
+    cookies: [{
+      name: "partitioned-session",
+      value: "must-not-cross",
+      domain: ".chatgpt.com",
+      path: "/",
+      expires: -1,
+      httpOnly: true,
+      secure: true,
+      sameSite: "None",
+      partitionKey: "https://example.com",
+    }, {
+      name: "session",
+      value: "secret-session",
+      domain: ".chatgpt.com",
+      path: "/",
+      expires: -1,
+      httpOnly: true,
+      secure: true,
+      sameSite: "Lax",
+    }],
+    origins: [],
+  });
+  assert.deepEqual(validated.cookies.map((cookie) => cookie.name), ["session"]);
+  assert.deepEqual(validated.partitionedCookies, []);
+});
+
+test("system-browser storage transfer rejects a malformed partition key", () => {
+  assert.throws(() => validateChatGptStorageState({
+    cookies: [{
+      name: "partitioned-session",
+      value: "must-not-cross",
+      domain: ".chatgpt.com",
+      path: "/",
+      expires: -1,
+      httpOnly: true,
+      secure: true,
+      sameSite: "None",
+      partitionKey: "not an origin",
+    }],
+    origins: [],
+  }), /invalid cookie partition key/);
 });
 
 test("system-browser login proves the Electron composer and cleans transfer state", async () => {
@@ -520,12 +622,19 @@ test("system-browser login proves the Electron composer and cleans transfer stat
       flushStore: async () => calls.push("flush-cookies"),
     },
   };
+  let debuggerAttached = false;
   const fixture = Object.assign(Object.create(BrowserHost.prototype), {
     turnTabs: new Map(),
     view: {
       webContents: {
         isDestroyed: () => false,
         session: browserSession,
+        debugger: {
+          isAttached: () => debuggerAttached,
+          attach: (version) => { debuggerAttached = true; calls.push(["debugger-attach", version]); },
+          sendCommand: async (command, params) => calls.push(["debugger-command", command, params]),
+          detach: () => { debuggerAttached = false; calls.push("debugger-detach"); },
+        },
         loadURL: async (url) => calls.push(["load", url]),
         executeJavaScript: async (script) => calls.push(["script", script]),
       },
@@ -550,6 +659,17 @@ test("system-browser login proves the Electron composer and cleans transfer stat
         httpOnly: true,
         secure: true,
         sameSite: "Lax",
+      }, {
+        name: "partitioned-session",
+        value: "partitioned-secret-session",
+        domain: ".chatgpt.com",
+        path: "/",
+        expires: -1,
+        httpOnly: true,
+        secure: true,
+        sameSite: "None",
+        partitionKey: "https://auth.openai.com",
+        _crHasCrossSiteAncestor: false,
       }],
       origins: [{ origin: "https://chatgpt.com", localStorage: [{ name: "theme", value: "dark" }] }],
     },
@@ -561,6 +681,10 @@ test("system-browser login proves the Electron composer and cleans transfer stat
   assert.equal(result.authenticated, true);
   assert.equal(calls.filter((call) => call === "clear").length, 1);
   assert.ok(calls.some((call) => Array.isArray(call) && call[0] === "cookie"));
+  const partitionedImport = calls.find((call) => Array.isArray(call) && call[0] === "debugger-command");
+  assert.equal(partitionedImport[1], "Network.setCookies");
+  assert.equal(partitionedImport[2].cookies[0].name, "partitioned-session");
+  assert.equal(calls.filter((call) => call === "debugger-detach").length, 1);
   assert.ok(calls.some((call) => Array.isArray(call) && call[0] === "script" && call[1].includes("theme")));
   assert.ok(calls.indexOf("verify-electron") > calls.findIndex((call) => Array.isArray(call) && call[0] === "cookie"));
   assert.ok(calls.indexOf("cleanup") > calls.indexOf("verify-electron"));

@@ -344,6 +344,35 @@ test("the real compaction envelope survives a simulated 16-unit caret drift at i
   expect(attached).toBe(compiled.text);
 });
 
+test("the observed 102k Extra High prompt survives a 16-unit Lexical caret drift", async () => {
+  const prompt = "x".repeat(102_394);
+  let attached = "";
+  let caret = 0;
+  let simulatedDrift = false;
+  const insertPromptText = (ChatGptBrowserWorker.prototype as unknown as {
+    insertPromptText(page: unknown, text: string): Promise<void>;
+  }).insertPromptText;
+
+  await insertPromptText.call({
+    waitForPromptChunkAttached: async (_page: unknown, expected: string) => {
+      expect(attached.trimStart()).toBe(expected);
+      caret = attached.length - 16;
+      simulatedDrift = true;
+    },
+    reanchorPromptCaret: async () => { caret = attached.length; },
+  }, {
+    keyboard: {
+      insertText: async (value: string) => {
+        attached = `${attached.slice(0, caret)}${value}${attached.slice(caret)}`;
+        caret += value.length;
+      },
+    },
+  }, ` ${prompt}`);
+
+  expect(simulatedDrift).toBeTrue();
+  expect(attached.slice(1)).toBe(prompt);
+});
+
 test("prompt chunks never split a UTF-16 surrogate pair", async () => {
   const prompt = `${"x".repeat(CHATGPT_PROMPT_INSERT_CHUNK_CHARS - 1)}😀tail`;
   const inserted: string[] = [];

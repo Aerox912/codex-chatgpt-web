@@ -15,7 +15,7 @@ function processIsRunning(pid: number): boolean {
   }
 }
 
-test("login uses one normal Chrome on a non-automation loopback port and never launches a verifier browser", async () => {
+test("login uses one normal Chrome on a non-automation loopback port and never creates a verifier context", async () => {
   if (process.platform === "win32") return;
   const root = mkdtempSync(join(tmpdir(), "codex-chatgpt-web-login-"));
   const executable = join(root, "fake-chrome");
@@ -57,9 +57,11 @@ test("login uses one normal Chrome on a non-automation loopback port and never l
     expect(source).toContain('session.send("Browser.close")');
     expect(source).not.toContain("launchPersistentContext(profileDir");
     expect(source).not.toContain("inspectStoredState");
-    expect(source).toContain("browser.newContext({ storageState })");
+    expect(source).not.toContain("browser.newContext({ storageState })");
     expect(loginSource).not.toContain("chromium.launch(");
     expect(loginSource).not.toContain("AutomationControlled");
+    expect(source).toContain("const LOGIN_AUTH_POLL_INTERVAL_MS = 1_000");
+    expect(source).toContain("delay(Math.min(LOGIN_AUTH_POLL_INTERVAL_MS");
   } finally {
     if (previousLog === undefined) delete process.env.CODEX_LOGIN_ARG_LOG;
     else process.env.CODEX_LOGIN_ARG_LOG = previousLog;
