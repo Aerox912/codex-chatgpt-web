@@ -10,23 +10,25 @@ const {
   expectedChecksum,
   macApplicationPath,
   releaseAssetName,
+  UPDATE_CHECK_INTERVAL_MS,
   validateReleaseAssetUrl,
 } = require("../electron/update.cjs");
 
 test("release comparison and platform assets are strict", () => {
+  assert.equal(UPDATE_CHECK_INTERVAL_MS, 6 * 60 * 60 * 1_000);
   assert.equal(compareVersions("1.1.5", "1.1.4"), 1);
   assert.equal(compareVersions("1.1.4", "1.1.4"), 0);
   assert.equal(compareVersions("1.1.3", "1.1.4"), -1);
   assert.equal(compareVersions("1.2.0", "1.1.99"), 1);
-  assert.equal(compareVersions("2.1.8-patch.6", "2.1.8-patch.5"), 1);
+  assert.equal(compareVersions("2.1.8-patch.7", "2.1.8-patch.6"), 1);
   assert.equal(releaseAssetName("1.2.0", "darwin", "arm64"), "codex-web-gpt-1.2.0-mac-arm64.zip");
   assert.equal(releaseAssetName("1.2.0", "darwin", "x64"), "codex-web-gpt-1.2.0-mac-x64.zip");
   assert.equal(releaseAssetName("1.2.0", "win32", "x64"), "codex-web-gpt-1.2.0-win-x64.exe");
   assert.equal(releaseAssetName("1.2.0", "linux", "x64"), "codex-web-gpt-1.2.0-linux-x64.AppImage");
   assert.equal(releaseAssetName("1.2.0", "linux", "arm64"), null);
   assert.equal(
-    releaseAssetName("2.1.8-patch.6", "win32", "x64"),
-    "codex-web-gpt-2.1.8-patch.6-win-x64.exe",
+    releaseAssetName("2.1.8-patch.7", "win32", "x64"),
+    "codex-web-gpt-2.1.8-patch.7-win-x64.exe",
   );
 });
 
@@ -89,8 +91,49 @@ test("startup check runs once and exposes only a newer complete release", async 
   });
   assert.deepEqual(await controller.checkOnce(), { status: "available", version: "1.2.0" });
   assert.deepEqual(await controller.checkOnce(), { status: "available", version: "1.2.0" });
+  assert.deepEqual(await controller.checkAgain(), { status: "available", version: "1.2.0" });
   assert.equal(calls, 1);
   assert.deepEqual(published.map((state) => state.status), ["checking", "available"]);
+});
+
+test("periodic checks retry after an up-to-date result and coalesce overlapping checks", async () => {
+  let calls = 0;
+  let finishFirstCheck;
+  const published = [];
+  const controller = createUpdateController({
+    currentVersion: "1.1.4",
+    platform: "linux",
+    arch: "x64",
+    packaged: true,
+    executablePath: "/tmp/launcher",
+    runtimeExecutable: "/tmp/bun",
+    logsDirectory: "/tmp/logs",
+    publish: (state) => published.push(state),
+    dependencies: {
+      fetchRelease: async () => {
+        calls += 1;
+        if (calls === 1) {
+          return new Promise((resolve) => {
+            finishFirstCheck = () => resolve({ tag_name: "v1.1.4", assets: [] });
+          });
+        }
+        return { tag_name: "v1.1.4", assets: [] };
+      },
+    },
+  });
+
+  const startup = controller.checkOnce();
+  const overlapping = controller.checkAgain();
+  assert.equal(calls, 1);
+  finishFirstCheck();
+  assert.deepEqual(await startup, { status: "up-to-date" });
+  assert.deepEqual(await overlapping, { status: "up-to-date" });
+  assert.deepEqual(await controller.checkAgain(), { status: "up-to-date" });
+  assert.equal(calls, 2);
+  assert.deepEqual(
+    published.map((state) => state.status),
+    ["checking", "up-to-date", "checking", "up-to-date"],
+  );
 });
 
 test("verified update is handed to one detached worker", async () => {

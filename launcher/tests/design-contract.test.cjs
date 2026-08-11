@@ -262,10 +262,11 @@ test("launcher reminds authenticated users to refresh the private ChatGPT sessio
   assert.match(i18nSource, /建议每两天重新登录一次/);
 });
 
-test("launcher checks once at startup and exposes a blue user-triggered update action", () => {
+test("launcher checks at startup and every six hours while keeping updates user-triggered", () => {
   assert.match(electronMain, /createUpdateController/);
   assert.match(electronMain, /void updateController\.checkOnce\(\)/);
-  assert.doesNotMatch(electronMain, /setInterval\([^)]*update/i);
+  assert.match(electronMain, /setInterval\(check, UPDATE_CHECK_INTERVAL_MS\)/);
+  assert.match(electronMain, /stopUpdateCheckMonitor\(\)/);
   assert.match(preloadSource, /installUpdate:[\s\S]*?launcher:update-install/);
   assert.match(appSource, /tone="update"/);
   assert.match(appSource, /copy\.updateAvailable/);

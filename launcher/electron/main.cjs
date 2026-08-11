@@ -28,7 +28,7 @@ const { RuntimeHost } = require("./runtime.cjs");
 const { ensurePackagedRuntime } = require("./runtime-install.cjs");
 const { RuntimeSupervisor } = require("./runtime-supervisor.cjs");
 const { runtimeBundlePaths } = require("./runtime-command.cjs");
-const { createUpdateController } = require("./update.cjs");
+const { createUpdateController, UPDATE_CHECK_INTERVAL_MS } = require("./update.cjs");
 const {
   createStateStore,
   nextSessionRefreshReminderAt,
@@ -93,6 +93,7 @@ let lastOperation = null;
 let catalogVerificationTimer = null;
 let catalogVerificationInFlight = false;
 let updateController = null;
+let updateCheckTimer = null;
 
 function findFreePort() {
   return new Promise((resolve, reject) => {
@@ -121,6 +122,26 @@ function publishOperation(operation) {
 function stopCatalogVerificationMonitor() {
   if (catalogVerificationTimer) clearInterval(catalogVerificationTimer);
   catalogVerificationTimer = null;
+}
+
+function stopUpdateCheckMonitor() {
+  if (updateCheckTimer) clearInterval(updateCheckTimer);
+  updateCheckTimer = null;
+}
+
+function startUpdateCheckMonitor({ logger }) {
+  stopUpdateCheckMonitor();
+  if (!updateController || updateController.getState().status === "disabled") return;
+  const check = () => {
+    void updateController.checkAgain().catch((error) => {
+      logger.warn("launcher.periodic_update_check_failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
+  };
+  updateCheckTimer = setInterval(check, UPDATE_CHECK_INTERVAL_MS);
+  updateCheckTimer.unref?.();
+  void updateController.checkOnce();
 }
 
 function startCatalogVerificationMonitor({ logger, stateStore }) {
@@ -624,6 +645,7 @@ async function requestQuit() {
     }
     await runtimeSupervisor?.shutdown();
     stopCatalogVerificationMonitor();
+    stopUpdateCheckMonitor();
     quitting = true;
     await browserHost?.persistSession();
     browserHost?.destroy();
@@ -762,7 +784,7 @@ async function start() {
     });
   }
   await loadRenderer(mainWindow);
-  if (!launcherSmokeTest) void updateController.checkOnce();
+  if (!launcherSmokeTest) startUpdateCheckMonitor({ logger });
   if (launcherSmokeTest) {
     const smokeRuntimeRoot = runtimeRootProvider();
     if (app.isPackaged && !smokeRuntimeRoot) {
