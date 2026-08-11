@@ -84,6 +84,8 @@ export const CHATGPT_EMPTY_RESPONSE_GRACE_MS = 10_000;
 export const CHATGPT_COMPLETION_ACTION_GRACE_MS = 60_000;
 export const CHATGPT_COMPLETION_SETTLE_MS = 2_000;
 export const CHATGPT_TOOL_CONFIRMATION_TIMEOUT_MS = 60_000;
+export const CHATGPT_TERMINAL_ERROR_RETRY_DELAYS_MS = [5_000, 15_000] as const;
+export const CHATGPT_TERMINAL_ERROR_RETRY_SETTLE_MS = 15_000;
 const CHATGPT_SMOKE_TEXT = "Reply with exactly: CODEX WEB GPT READY";
 const CHATGPT_SMOKE_EXPECTED = "CODEX WEB GPT READY";
 /**
@@ -122,7 +124,7 @@ export async function throwIfChatGptRateLimitDialog(page: Page): Promise<void> {
   );
 }
 
-type ChatGptTextScope = Pick<Locator, "getByText">;
+type ChatGptTextScope = Pick<Locator, "getByRole" | "getByText">;
 
 const chatGptSessionFailureAlert = (page: Page): Locator => page
   .locator('[role="alert"]')
@@ -141,12 +143,37 @@ const chatGptTerminalErrorAlert = (scope: ChatGptTextScope): Locator => scope
   .getByText(/Something went wrong[\s\S]*help\.openai\.com/i)
   .last();
 
+export async function retryChatGptTerminalErrorAlert(
+  scope: ChatGptTextScope,
+  settleTimeoutMs = CHATGPT_TERMINAL_ERROR_RETRY_SETTLE_MS,
+): Promise<boolean> {
+  const alert = chatGptTerminalErrorAlert(scope);
+  if (!await alert.isVisible().catch(() => false)) return false;
+  const retry = scope.getByRole("button", { name: /^(Retry|Try again)$/i }).last();
+  if (!await retry.isVisible().catch(() => false)) return false;
+  try {
+    await retry.press("Enter");
+    await alert.waitFor({ state: "hidden", timeout: settleTimeoutMs });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function throwIfChatGptTerminalErrorAlert(scope: ChatGptTextScope): Promise<void> {
   if (!await chatGptTerminalErrorAlert(scope).isVisible().catch(() => false)) return;
   throw new ChatGptWebAdapterError(
     "ChatGPT ended the turn with 'Something went wrong'. Retry the turn.",
     { status: 502, errorType: "server_error", code: "upstream_server_error", retryable: true },
   );
+}
+
+async function waitForChatGptTerminalRetry(delayMs: number, signal?: AbortSignal): Promise<void> {
+  const deadline = Date.now() + delayMs;
+  while (Date.now() < deadline) {
+    if (signal?.aborted) throw new DOMException("ChatGPT web turn aborted", "AbortError");
+    await new Promise(resolveSleep => setTimeout(resolveSleep, Math.min(100, deadline - Date.now())));
+  }
 }
 
 export async function resolveChatGptToolConfirmation(
@@ -1889,7 +1916,7 @@ export class ChatGptBrowserWorker {
       await diagnostics.capture(page, "file-attachment-complete");
       const responseTurns = page.locator(CHATGPT_ASSISTANT_TURN_SELECTOR);
       const initialResponseTurnCount = await responseTurns.count();
-      const responseTurn = responseTurns.nth(initialResponseTurnCount);
+      let responseTurn = responseTurns.nth(initialResponseTurnCount);
       const userTurns = page.locator(CHATGPT_USER_TURN_SELECTOR);
       const initialUserTurnCount = await userTurns.count();
       await this.runStage(turn.traceId, "send", browserStageTimeouts.send, async (stageSignal) => {
@@ -1923,18 +1950,23 @@ export class ChatGptBrowserWorker {
       let sawRunning = false;
       let loggedCompletionWait = false;
       let capturedResponse = false;
-      const sentAt = Date.now();
-      const visibleTrace = new ChatGptVisibleTraceTracker();
-      const markdownBuffer = new ChatGptMarkdownBuffer();
-      const checkpointStream = turn.captureLunaCheckpoint
+      let sentAt = Date.now();
+      let visibleTrace = new ChatGptVisibleTraceTracker();
+      let markdownBuffer = new ChatGptMarkdownBuffer();
+      let checkpointStream = turn.captureLunaCheckpoint
         ? new ChatGptLunaCheckpointStream()
         : undefined;
+      let emittedVisibleText = false;
+      let terminalErrorRetries = 0;
       const emitMarkdownDelta = (delta: string): void => {
         const visible = checkpointStream ? checkpointStream.push(delta) : delta;
-        if (visible) turn.onTextDelta(visible);
+        if (visible) {
+          emittedVisibleText = true;
+          turn.onTextDelta(visible);
+        }
       };
-      const completionTracker = new ChatGptCompletionTracker();
-      const domHealthTracker = new ChatGptTurnDomHealthTracker();
+      let completionTracker = new ChatGptCompletionTracker();
+      let domHealthTracker = new ChatGptTurnDomHealthTracker();
       for (;;) {
         if (page.isClosed()) {
           throw new Error("ChatGPT browser tab was closed; the Codex turn was terminated");
@@ -1953,6 +1985,35 @@ export class ChatGptBrowserWorker {
         }
 
         await throwIfChatGptSessionFailureAlert(page);
+        if (await chatGptTerminalErrorAlert(responseTurn).isVisible().catch(() => false)) {
+          const retryDelay = CHATGPT_TERMINAL_ERROR_RETRY_DELAYS_MS[terminalErrorRetries];
+          if (!emittedVisibleText && retryDelay !== undefined) {
+            const attempt = terminalErrorRetries + 1;
+            console.warn(
+              `[chatgpt-web] browser turn ${turn.traceId} received ChatGPT terminal error;`
+              + ` retrying in-page attempt=${attempt} delayMs=${retryDelay}`,
+            );
+            await diagnostics.capture(page, `terminal-error-retry-${attempt}-ready`);
+            await waitForChatGptTerminalRetry(retryDelay, turn.abortSignal);
+            if (await retryChatGptTerminalErrorAlert(responseTurn)) {
+              terminalErrorRetries = attempt;
+              responseTurn = responseTurns.last();
+              sentAt = Date.now();
+              sawRunning = false;
+              loggedCompletionWait = false;
+              capturedResponse = false;
+              visibleTrace = new ChatGptVisibleTraceTracker();
+              markdownBuffer = new ChatGptMarkdownBuffer();
+              checkpointStream = turn.captureLunaCheckpoint
+                ? new ChatGptLunaCheckpointStream()
+                : undefined;
+              completionTracker = new ChatGptCompletionTracker();
+              domHealthTracker = new ChatGptTurnDomHealthTracker();
+              await diagnostics.capture(page, `terminal-error-retry-${attempt}-started`);
+              continue;
+            }
+          }
+        }
         await throwIfChatGptTerminalErrorAlert(responseTurn);
 
         if (mode.localTools && await resolveChatGptToolConfirmation(

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import type { Page } from "playwright-core";
-import { CHATGPT_COMPOSER_DOCUMENT_END_KEY, CHATGPT_PROMPT_INSERT_CHUNK_CHARS, ChatGptBrowserWorker, ChatGptTurnDomHealthTracker, ChatGptVisibleTraceTracker, MAX_CHATGPT_BROWSER_TABS, assertChatGptWebInputWithinLimits, browserDiagnosticCheckpoint, browserDiagnosticIncludesScreenshot, chatGptSubmissionEvidence, isChatGptTraceControl, redactChatGptUiDiagnostic, resolveBrowserConfig, resolveChatGptToolConfirmation, stripChatGptTraceControlSuffix, throwIfChatGptRateLimitDialog, throwIfChatGptSessionFailureAlert, throwIfChatGptTerminalErrorAlert } from "../src/adapters/chatgpt-web/browser-worker";
+import { CHATGPT_COMPOSER_DOCUMENT_END_KEY, CHATGPT_PROMPT_INSERT_CHUNK_CHARS, CHATGPT_TERMINAL_ERROR_RETRY_DELAYS_MS, ChatGptBrowserWorker, ChatGptTurnDomHealthTracker, ChatGptVisibleTraceTracker, MAX_CHATGPT_BROWSER_TABS, assertChatGptWebInputWithinLimits, browserDiagnosticCheckpoint, browserDiagnosticIncludesScreenshot, chatGptSubmissionEvidence, isChatGptTraceControl, redactChatGptUiDiagnostic, resolveBrowserConfig, resolveChatGptToolConfirmation, retryChatGptTerminalErrorAlert, stripChatGptTraceControlSuffix, throwIfChatGptRateLimitDialog, throwIfChatGptSessionFailureAlert, throwIfChatGptTerminalErrorAlert } from "../src/adapters/chatgpt-web/browser-worker";
 import { CHATGPT_WEB_MODEL_ID } from "../src/adapters/chatgpt-web/model";
 import { compileChatGptWebPrompt } from "../src/adapters/chatgpt-web/prompt";
 import { CHATGPT_CONNECTOR_NAME, defaultChromeExecutable } from "../src/config";
@@ -842,7 +842,10 @@ function dialogPage(text: string): { page: Page; pressed: string[] } {
   const button = {
     last: () => button,
     isVisible: async () => matches,
-    press: async (key: string) => { pressed.push(key); },
+    press: async (key: string) => {
+      pressed.push(key);
+      matches = false;
+    },
   };
   const dialog = {
     filter: ({ hasText }: { hasText: string | RegExp }) => {
@@ -851,11 +854,15 @@ function dialogPage(text: string): { page: Page; pressed: string[] } {
     },
     last: () => dialog,
     isVisible: async () => matches,
+    waitFor: async ({ state }: { state: string }) => {
+      if (state === "hidden" && matches) throw new Error("dialog remained visible");
+    },
     getByRole: () => button,
   };
   return {
     page: {
       locator: () => dialog,
+      getByRole: () => button,
       getByText: (hasText: string | RegExp) => dialog.filter({ hasText }),
     } as unknown as Page,
     pressed,
@@ -897,6 +904,16 @@ test("the known terminal ChatGPT error alert returns a structured retryable fail
   expect(fixture.pressed).toEqual([]);
 });
 
+test("the known terminal ChatGPT error can retry inside the retained browser turn", async () => {
+  const fixture = dialogPage(
+    "Something went wrong. If this issue persists please contact us through our help center at help.openai.com.",
+  );
+
+  expect(await retryChatGptTerminalErrorAlert(fixture.page, 0)).toBe(true);
+  expect(fixture.pressed).toEqual(["Enter"]);
+  await throwIfChatGptTerminalErrorAlert(fixture.page);
+});
+
 test("a failed subscription fetch is retryable and does not falsely invalidate ChatGPT login", async () => {
   const fixture = dialogPage(
     "Failed to load subscription: Something went wrong. If this issue persists please contact us through our help center at help.openai.com.",
@@ -915,6 +932,11 @@ test("terminal model errors are scoped to the new assistant turn instead of glob
   const workerSource = readFileSync(new URL("../src/adapters/chatgpt-web/browser-worker.ts", import.meta.url), "utf8");
   expect(workerSource).toContain("throwIfChatGptTerminalErrorAlert(responseTurn)");
   expect(workerSource).not.toContain("throwIfChatGptTerminalErrorAlert(page)");
+  expect(CHATGPT_TERMINAL_ERROR_RETRY_DELAYS_MS).toEqual([5_000, 15_000]);
+  const recovery = workerSource.indexOf("retryChatGptTerminalErrorAlert(responseTurn)");
+  const failure = workerSource.lastIndexOf("throwIfChatGptTerminalErrorAlert(responseTurn)");
+  expect(recovery).toBeGreaterThan(-1);
+  expect(failure).toBeGreaterThan(recovery);
 });
 
 test("submission acceptance stops when its stage is aborted", async () => {
