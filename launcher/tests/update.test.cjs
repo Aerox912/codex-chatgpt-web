@@ -20,16 +20,52 @@ test("release comparison and platform assets are strict", () => {
   assert.equal(compareVersions("1.1.4", "1.1.4"), 0);
   assert.equal(compareVersions("1.1.3", "1.1.4"), -1);
   assert.equal(compareVersions("1.2.0", "1.1.99"), 1);
-  assert.equal(compareVersions("2.1.8-patch.8", "2.1.8-patch.7"), 1);
+  assert.equal(compareVersions("2.1.8-patch.9", "2.1.8-patch.8"), 1);
   assert.equal(releaseAssetName("1.2.0", "darwin", "arm64"), "codex-web-gpt-1.2.0-mac-arm64.zip");
   assert.equal(releaseAssetName("1.2.0", "darwin", "x64"), "codex-web-gpt-1.2.0-mac-x64.zip");
   assert.equal(releaseAssetName("1.2.0", "win32", "x64"), "codex-web-gpt-1.2.0-win-x64.exe");
   assert.equal(releaseAssetName("1.2.0", "linux", "x64"), "codex-web-gpt-1.2.0-linux-x64.AppImage");
   assert.equal(releaseAssetName("1.2.0", "linux", "arm64"), null);
   assert.equal(
-    releaseAssetName("2.1.8-patch.8", "win32", "x64"),
-    "codex-web-gpt-2.1.8-patch.8-win-x64.exe",
+    releaseAssetName("2.1.8-patch.9", "win32", "x64"),
+    "codex-web-gpt-2.1.8-patch.9-win-x64.exe",
   );
+});
+
+test("an on-demand check can discover an update after the startup check", async () => {
+  let calls = 0;
+  const controller = createUpdateController({
+    currentVersion: "1.1.4",
+    platform: "linux",
+    arch: "x64",
+    packaged: true,
+    executablePath: "/tmp/launcher",
+    runtimeExecutable: "/tmp/bun",
+    logsDirectory: "/tmp/logs",
+    dependencies: {
+      fetchRelease: async () => {
+        calls += 1;
+        if (calls === 1) return { tag_name: "v1.1.4", assets: [] };
+        return {
+          tag_name: "v1.2.0",
+          assets: [
+            {
+              name: "codex-web-gpt-1.2.0-linux-x64.AppImage",
+              browser_download_url: "https://github.com/Aerox912/codex-chatgpt-web/releases/download/v1.2.0/codex-web-gpt-1.2.0-linux-x64.AppImage",
+            },
+            {
+              name: "checksums.txt",
+              browser_download_url: "https://github.com/Aerox912/codex-chatgpt-web/releases/download/v1.2.0/checksums.txt",
+            },
+          ],
+        };
+      },
+    },
+  });
+
+  assert.deepEqual(await controller.checkOnce(), { status: "up-to-date" });
+  assert.deepEqual(await controller.checkAgain(), { status: "available", version: "1.2.0" });
+  assert.equal(calls, 2);
 });
 
 test("checksums and release URLs bind the exact expected asset", () => {

@@ -262,15 +262,21 @@ test("launcher reminds authenticated users to refresh the private ChatGPT sessio
   assert.match(i18nSource, /建议每两天重新登录一次/);
 });
 
-test("launcher checks at startup and every six hours while keeping updates user-triggered", () => {
+test("launcher checks at startup, on demand, and every six hours while keeping installs user-triggered", () => {
   assert.match(electronMain, /createUpdateController/);
   assert.match(electronMain, /void updateController\.checkOnce\(\)/);
   assert.match(electronMain, /setInterval\(check, UPDATE_CHECK_INTERVAL_MS\)/);
   assert.match(electronMain, /stopUpdateCheckMonitor\(\)/);
+  assert.match(electronMain, /launcher:update-check[\s\S]*?updateController\.checkAgain\(\)/);
+  assert.match(preloadSource, /checkForUpdates:[\s\S]*?launcher:update-check/);
   assert.match(preloadSource, /installUpdate:[\s\S]*?launcher:update-install/);
+  assert.match(appSource, /api!\.checkForUpdates\(\)/);
+  assert.match(appSource, /copy\.checkNow/);
   assert.match(appSource, /tone="update"/);
   assert.match(appSource, /copy\.updateAvailable/);
   assert.match(styles, /\.sidebar-item\.is-update\s*\{[^}]*background:\s*rgb\(51 156 255 \/ 14%\)/s);
   assert.match(i18nSource, /updateAvailable: "Update to"/);
   assert.match(i18nSource, /updateAvailable: "更新至"/);
+  assert.match(i18nSource, /checkNow: "Check now"/);
+  assert.match(i18nSource, /checkNow: "立即检查"/);
 });

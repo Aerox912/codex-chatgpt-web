@@ -610,6 +610,10 @@ function registerIpc({ logger, stateStore }) {
     if (error) throw new Error(`Could not open the launcher log directory: ${error}`);
     return logger.filePath;
   });
+  handle("launcher:update-check", async () => {
+    if (!updateController) throw new Error("Launcher updates are unavailable");
+    return updateController.checkAgain();
+  });
   handle("launcher:update-install", async () => {
     if (!updateController) throw new Error("Launcher updates are unavailable");
     const launch = await updateController.beginInstall();
