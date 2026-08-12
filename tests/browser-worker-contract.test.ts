@@ -11,8 +11,9 @@ import type { CodexParsedRequest } from "../src/types";
 test("Codex context uses the owned CDP composer transport, never the operating-system clipboard", () => {
   const workerSource = readFileSync(new URL("../src/adapters/chatgpt-web/browser-worker.ts", import.meta.url), "utf8");
   expect(workerSource).toContain('composer.fill("")');
-  expect(workerSource).toContain("this.insertPromptText(page, prompt, abortSignal)");
-  expect(workerSource).toContain("this.insertPromptText(page, ` ${prompt}`, abortSignal)");
+  expect(workerSource).toContain("const composerPrompt = chatGptComposerText(prompt)");
+  expect(workerSource).toContain("this.insertPromptText(page, composerPrompt, abortSignal)");
+  expect(workerSource).toContain("this.insertPromptText(page, ` ${composerPrompt}`, abortSignal)");
   expect(workerSource).not.toMatch(/\bclipboard\b|pbcopy|pbpaste/i);
 });
 
@@ -290,6 +291,56 @@ test("multi-chunk prompt insertion repairs a drifted Lexical caret after each ex
     ["reanchor"],
     ["insertText", "457"],
   ]);
+});
+
+test("prompt attachment canonicalizes Windows line endings before chunk verification", async () => {
+  const prompt = `${"x".repeat(CHATGPT_PROMPT_INSERT_CHUNK_CHARS - 1)}\r\n${"y".repeat(457)}`;
+  const canonicalPrompt = prompt.replace(/\r\n?/g, "\n");
+  const inserted: string[] = [];
+  let attached = "";
+  let caret = 0;
+  let asserted = "";
+  const composer = {
+    fill: async (value: string) => {
+      attached = value;
+      caret = value.length;
+    },
+    focus: async () => {},
+  };
+  const page = {
+    keyboard: {
+      insertText: async (value: string) => {
+        inserted.push(value);
+        const browserValue = value.replace(/\r\n?/g, "\n");
+        attached = `${attached.slice(0, caret)}${browserValue}${attached.slice(caret)}`;
+        caret += browserValue.length;
+      },
+    },
+  };
+  const attachPrompt = (ChatGptBrowserWorker.prototype as unknown as {
+    attachPrompt(page: unknown, prompt: string, localTools: boolean): Promise<void>;
+  }).attachPrompt;
+  const insertPromptText = (ChatGptBrowserWorker.prototype as unknown as {
+    insertPromptText(page: unknown, text: string): Promise<void>;
+  }).insertPromptText;
+
+  await attachPrompt.call({
+    activeComposer: async () => composer,
+    insertPromptText,
+    waitForPromptChunkAttached: async (_page: unknown, expected: string) => {
+      expect(attached).toBe(expected);
+    },
+    reanchorPromptCaret: async () => { caret = attached.length; },
+    assertPromptAttached: async (_page: unknown, expected: string) => {
+      asserted = expected;
+      expect(attached).toBe(expected);
+    },
+  }, page, prompt, false);
+
+  expect(inserted.join("")).toBe(canonicalPrompt);
+  expect(inserted.some(chunk => chunk.includes("\r"))).toBeFalse();
+  expect(attached).toBe(canonicalPrompt);
+  expect(asserted).toBe(canonicalPrompt);
 });
 
 test("the real compaction envelope survives a simulated 16-unit caret drift at its 100k boundary", async () => {

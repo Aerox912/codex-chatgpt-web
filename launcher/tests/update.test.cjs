@@ -20,15 +20,15 @@ test("release comparison and platform assets are strict", () => {
   assert.equal(compareVersions("1.1.4", "1.1.4"), 0);
   assert.equal(compareVersions("1.1.3", "1.1.4"), -1);
   assert.equal(compareVersions("1.2.0", "1.1.99"), 1);
-  assert.equal(compareVersions("2.1.8-patch.9", "2.1.8-patch.8"), 1);
+  assert.equal(compareVersions("2.1.8-patch.10", "2.1.8-patch.9"), 1);
   assert.equal(releaseAssetName("1.2.0", "darwin", "arm64"), "codex-web-gpt-1.2.0-mac-arm64.zip");
   assert.equal(releaseAssetName("1.2.0", "darwin", "x64"), "codex-web-gpt-1.2.0-mac-x64.zip");
   assert.equal(releaseAssetName("1.2.0", "win32", "x64"), "codex-web-gpt-1.2.0-win-x64.exe");
   assert.equal(releaseAssetName("1.2.0", "linux", "x64"), "codex-web-gpt-1.2.0-linux-x64.AppImage");
   assert.equal(releaseAssetName("1.2.0", "linux", "arm64"), null);
   assert.equal(
-    releaseAssetName("2.1.8-patch.9", "win32", "x64"),
-    "codex-web-gpt-2.1.8-patch.9-win-x64.exe",
+    releaseAssetName("2.1.8-patch.10", "win32", "x64"),
+    "codex-web-gpt-2.1.8-patch.10-win-x64.exe",
   );
 });
 

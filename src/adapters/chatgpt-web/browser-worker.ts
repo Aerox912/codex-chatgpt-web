@@ -297,6 +297,13 @@ function promptInsertChunkEnd(text: string, offset: number): number {
   return end;
 }
 
+function chatGptComposerText(text: string): string {
+  // Chromium's contenteditable pipeline canonicalizes CRLF and lone CR input to LF. Normalize
+  // before chunking so a Windows line ending cannot be split at a chunk boundary and so every
+  // intermediate and final exact comparison uses the same representation as the Lexical DOM.
+  return text.replace(/\r\n?/g, "\n");
+}
+
 export interface BrowserTurn {
   traceId: string;
   modelId: string;
@@ -1313,6 +1320,7 @@ export class ChatGptBrowserWorker {
     abortSignal?: AbortSignal,
   ): Promise<void> {
     throwIfPromptAttachmentAborted(abortSignal);
+    const composerPrompt = chatGptComposerText(prompt);
     if (!localTools) {
       const composer = await this.activeComposer(page);
       // Playwright's multiline fill maps through an input action that ChatGPT's Lexical editor can
@@ -1320,15 +1328,15 @@ export class ChatGptBrowserWorker {
       // then transport the complete text in one CDP Input.insertText command.
       await composer.fill("");
       await composer.focus();
-      await this.insertPromptText(page, prompt, abortSignal);
-      await this.assertPromptAttached(page, prompt, abortSignal);
+      await this.insertPromptText(page, composerPrompt, abortSignal);
+      await this.assertPromptAttached(page, composerPrompt, abortSignal);
       return;
     }
     const selectedComposer = await this.selectConnector(page, captureDiagnostic);
     await selectedComposer.focus();
     await page.keyboard.press(CHATGPT_COMPOSER_DOCUMENT_END_KEY);
-    await this.insertPromptText(page, ` ${prompt}`, abortSignal);
-    await this.assertPromptAttached(page, prompt, abortSignal);
+    await this.insertPromptText(page, ` ${composerPrompt}`, abortSignal);
+    await this.assertPromptAttached(page, composerPrompt, abortSignal);
   }
 
   private async reanchorPromptCaret(page: Page, abortSignal?: AbortSignal): Promise<void> {
