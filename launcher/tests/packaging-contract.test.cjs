@@ -88,22 +88,35 @@ test("packaged launcher owns a detached checksummed updater for every release pl
   assert.doesNotMatch(worker, /backup/i);
 });
 
-test("CI packages and smoke-launches on macOS, Windows, and Linux", () => {
+test("CI validates native launcher packages without installing the Windows artifact", () => {
   const ci = fs.readFileSync(path.join(repositoryRoot, ".github", "workflows", "ci.yml"), "utf8");
   const release = fs.readFileSync(path.join(repositoryRoot, ".github", "workflows", "release.yml"), "utf8");
+  const inspector = fs.readFileSync(
+    path.join(launcherRoot, "scripts", "inspect-windows-package.cjs"),
+    "utf8",
+  );
   assert.match(ci, /macos-15, ubuntu-latest, windows-latest/);
   assert.match(ci, /bun run app:package/);
   assert.match(ci, /bun run app:smoke/);
+  assert.match(ci, /runner\.os != 'Windows'[\s\S]*bun run app:smoke/);
+  assert.match(ci, /runner\.os == 'Windows'[\s\S]*inspect:package:win/);
   assert.match(ci, /prepare-windows-baseline-bun\.ps1 -Version 1\.3\.14/);
   for (const runner of ["macos-15", "macos-15-intel", "ubuntu-latest", "windows-latest"]) {
     assert.match(release, new RegExp(runner));
   }
   assert.match(release, /launcher\/build\/runtime/);
   assert.match(release, /bun run app:smoke/);
+  assert.match(release, /runner\.os != 'Windows'[\s\S]*bun run app:smoke/);
+  assert.match(release, /runner\.os == 'Windows'[\s\S]*inspect:package:win/);
   assert.match(release, /prepare-fork-bun-runtime\.ps1/);
   assert.match(release, /codesign --verify --deep --strict --verbose=2/);
   assert.match(release, /Codex Web GPT\.app/);
   assert.doesNotMatch(release, /gh release create[\s\S]*?--draft/);
+  assert.match(inspector, /getPath7za/);
+  assert.match(inspector, /asar\.extractFile/);
+  assert.match(inspector, /run\(runtimeBun, \["--revision"\]\)/);
+  assert.doesNotMatch(inspector, /run\(installer/);
+  assert.doesNotMatch(inspector, /--launcher-smoke-test|"\/S"/);
 });
 
 test("release publishes the repository demo as a checksummed versioned asset", () => {
