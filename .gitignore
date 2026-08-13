@@ -14,6 +14,8 @@ storage-state.json
 runtime/
 references/
 .launcher-runtime/
+.codex-test-home/
+launcher/.smoke-*/
 launcher/build/
 launcher/release/
 launcher/artifacts/
