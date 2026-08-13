@@ -28,7 +28,7 @@ const { RuntimeHost } = require("./runtime.cjs");
 const { ensurePackagedRuntime } = require("./runtime-install.cjs");
 const { RuntimeSupervisor } = require("./runtime-supervisor.cjs");
 const { runtimeBundlePaths } = require("./runtime-command.cjs");
-const { createUpdateController } = require("./update.cjs");
+const { createUpdateController, UPDATE_CHECK_INTERVAL_MS } = require("./update.cjs");
 const {
   createStateStore,
   nextSessionRefreshReminderAt,
@@ -56,7 +56,7 @@ const BROWSER_DESCRIPTOR_PATH = path.join(CORE_HOME, "runtime", "launcher-browse
 const BROWSER_HELPER_PATH = app.isPackaged
   ? path.join(process.resourcesPath, "runtime", "app", "browser-helper.cjs")
   : path.join(SOURCE_ROOT, ".launcher-runtime", "browser-helper.cjs");
-const GITHUB_URL = "https://github.com/miuuyy/codex-chatgpt-web";
+const GITHUB_URL = "https://github.com/Aerox912/codex-chatgpt-web";
 const X_URL = "https://x.com/miu21590";
 const CONNECTORS_URL = "https://chatgpt.com/#settings/Plugins";
 const TUNNELS_URL = "https://platform.openai.com/settings/organization/tunnels";
@@ -93,6 +93,7 @@ let lastOperation = null;
 let catalogVerificationTimer = null;
 let catalogVerificationInFlight = false;
 let updateController = null;
+let updateCheckTimer = null;
 
 function findFreePort() {
   return new Promise((resolve, reject) => {
@@ -121,6 +122,26 @@ function publishOperation(operation) {
 function stopCatalogVerificationMonitor() {
   if (catalogVerificationTimer) clearInterval(catalogVerificationTimer);
   catalogVerificationTimer = null;
+}
+
+function stopUpdateCheckMonitor() {
+  if (updateCheckTimer) clearInterval(updateCheckTimer);
+  updateCheckTimer = null;
+}
+
+function startUpdateCheckMonitor({ logger }) {
+  stopUpdateCheckMonitor();
+  if (!updateController || updateController.getState().status === "disabled") return;
+  const check = () => {
+    void updateController.checkAgain().catch((error) => {
+      logger.warn("launcher.periodic_update_check_failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
+  };
+  updateCheckTimer = setInterval(check, UPDATE_CHECK_INTERVAL_MS);
+  updateCheckTimer.unref?.();
+  void updateController.checkOnce();
 }
 
 function startCatalogVerificationMonitor({ logger, stateStore }) {
@@ -589,6 +610,10 @@ function registerIpc({ logger, stateStore }) {
     if (error) throw new Error(`Could not open the launcher log directory: ${error}`);
     return logger.filePath;
   });
+  handle("launcher:update-check", async () => {
+    if (!updateController) throw new Error("Launcher updates are unavailable");
+    return updateController.checkAgain();
+  });
   handle("launcher:update-install", async () => {
     if (!updateController) throw new Error("Launcher updates are unavailable");
     const launch = await updateController.beginInstall();
@@ -624,6 +649,7 @@ async function requestQuit() {
     }
     await runtimeSupervisor?.shutdown();
     stopCatalogVerificationMonitor();
+    stopUpdateCheckMonitor();
     quitting = true;
     await browserHost?.persistSession();
     browserHost?.destroy();
@@ -761,7 +787,7 @@ async function start() {
     });
   }
   await loadRenderer(mainWindow);
-  if (!launcherSmokeTest) void updateController.checkOnce();
+  if (!launcherSmokeTest) startUpdateCheckMonitor({ logger });
   if (launcherSmokeTest) {
     const smokeRuntimeRoot = runtimeRootProvider();
     if (app.isPackaged && !smokeRuntimeRoot) {

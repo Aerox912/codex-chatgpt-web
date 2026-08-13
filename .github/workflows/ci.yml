@@ -44,7 +44,12 @@ jobs:
       - name: Ensure virtual display is available
         if: runner.os == 'Linux'
         run: command -v xvfb-run || (sudo apt-get update && sudo apt-get install -y xvfb)
-      - run: bun run app:smoke
+      - name: Inspect Windows package without installing it
+        if: runner.os == 'Windows'
+        run: bun run --cwd launcher inspect:package:win
+      - name: Smoke packaged launcher
+        if: runner.os != 'Windows'
+        run: bun run app:smoke
 
   actionlint:
     runs-on: ubuntu-latest

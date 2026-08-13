@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import type { Page } from "playwright-core";
-import { CHATGPT_COMPOSER_DOCUMENT_END_KEY, CHATGPT_PROMPT_INSERT_CHUNK_CHARS, ChatGptBrowserWorker, ChatGptTurnDomHealthTracker, ChatGptVisibleTraceTracker, MAX_CHATGPT_BROWSER_TABS, assertChatGptWebInputWithinLimits, browserDiagnosticCheckpoint, browserDiagnosticIncludesScreenshot, chatGptSubmissionEvidence, isChatGptTraceControl, redactChatGptUiDiagnostic, resolveBrowserConfig, resolveChatGptToolConfirmation, stripChatGptTraceControlSuffix, throwIfChatGptRateLimitDialog, throwIfChatGptSessionFailureAlert, throwIfChatGptTerminalErrorAlert } from "../src/adapters/chatgpt-web/browser-worker";
+import { CHATGPT_COMPOSER_DOCUMENT_END_KEY, CHATGPT_PROMPT_INSERT_CHUNK_CHARS, CHATGPT_TERMINAL_ERROR_RETRY_DELAYS_MS, ChatGptBrowserWorker, ChatGptTurnDomHealthTracker, ChatGptVisibleTraceTracker, MAX_CHATGPT_BROWSER_TABS, assertChatGptWebInputWithinLimits, browserDiagnosticCheckpoint, browserDiagnosticIncludesScreenshot, chatGptSubmissionEvidence, isChatGptTraceControl, redactChatGptUiDiagnostic, resolveBrowserConfig, resolveChatGptToolConfirmation, retryChatGptTerminalErrorAlert, stripChatGptTraceControlSuffix, throwIfChatGptRateLimitDialog, throwIfChatGptSessionFailureAlert, throwIfChatGptTerminalErrorAlert } from "../src/adapters/chatgpt-web/browser-worker";
 import { CHATGPT_WEB_MODEL_ID } from "../src/adapters/chatgpt-web/model";
 import { compileChatGptWebPrompt } from "../src/adapters/chatgpt-web/prompt";
 import { CHATGPT_CONNECTOR_NAME, defaultChromeExecutable, legacyChatGptConnectorMigrationMessage } from "../src/config";
@@ -352,6 +352,56 @@ test("prompt insertion never sends the six-figure native edit that rewrites the 
   expect(attached).toBe(prompt);
 });
 
+test("prompt attachment canonicalizes Windows line endings before chunk verification", async () => {
+  const prompt = `${"x".repeat(CHATGPT_PROMPT_INSERT_CHUNK_CHARS - 1)}\r\n${"y".repeat(457)}`;
+  const canonicalPrompt = prompt.replace(/\r\n?/g, "\n");
+  const inserted: string[] = [];
+  let attached = "";
+  let caret = 0;
+  let asserted = "";
+  const composer = {
+    fill: async (value: string) => {
+      attached = value;
+      caret = value.length;
+    },
+    focus: async () => {},
+  };
+  const page = {
+    keyboard: {
+      insertText: async (value: string) => {
+        inserted.push(value);
+        const browserValue = value.replace(/\r\n?/g, "\n");
+        attached = `${attached.slice(0, caret)}${browserValue}${attached.slice(caret)}`;
+        caret += browserValue.length;
+      },
+    },
+  };
+  const attachPrompt = (ChatGptBrowserWorker.prototype as unknown as {
+    attachPrompt(page: unknown, prompt: string, localTools: boolean): Promise<void>;
+  }).attachPrompt;
+  const insertPromptText = (ChatGptBrowserWorker.prototype as unknown as {
+    insertPromptText(page: unknown, text: string): Promise<void>;
+  }).insertPromptText;
+
+  await attachPrompt.call({
+    activeComposer: async () => composer,
+    insertPromptText,
+    waitForPromptChunkAttached: async (_page: unknown, expected: string) => {
+      expect(attached).toBe(expected);
+    },
+    reanchorPromptCaret: async () => { caret = attached.length; },
+    assertPromptAttached: async (_page: unknown, expected: string) => {
+      asserted = expected;
+      expect(attached).toBe(expected);
+    },
+  }, page, prompt, false);
+
+  expect(inserted.join("")).toBe(canonicalPrompt);
+  expect(inserted.some(chunk => chunk.includes("\r"))).toBeFalse();
+  expect(attached).toBe(canonicalPrompt);
+  expect(asserted).toBe(canonicalPrompt);
+});
+
 test("the real compaction envelope survives simulated caret drift at every bounded edit boundary", async () => {
   const compact: CodexParsedRequest = {
     modelId: CHATGPT_WEB_MODEL_ID,
@@ -401,6 +451,35 @@ test("the real compaction envelope survives simulated caret drift at every bound
 
   expect(simulatedDrifts).toBe(Math.floor((compiled.text.length - 1) / CHATGPT_PROMPT_INSERT_CHUNK_CHARS));
   expect(attached).toBe(compiled.text);
+});
+
+test("the observed 102k Extra High prompt survives a 16-unit Lexical caret drift", async () => {
+  const prompt = "x".repeat(102_394);
+  let attached = "";
+  let caret = 0;
+  let simulatedDrift = false;
+  const insertPromptText = (ChatGptBrowserWorker.prototype as unknown as {
+    insertPromptText(page: unknown, text: string): Promise<void>;
+  }).insertPromptText;
+
+  await insertPromptText.call({
+    waitForPromptChunkAttached: async (_page: unknown, expected: string) => {
+      expect(attached.trimStart()).toBe(expected);
+      caret = attached.length - 16;
+      simulatedDrift = true;
+    },
+    reanchorPromptCaret: async () => { caret = attached.length; },
+  }, {
+    keyboard: {
+      insertText: async (value: string) => {
+        attached = `${attached.slice(0, caret)}${value}${attached.slice(caret)}`;
+        caret += value.length;
+      },
+    },
+  }, ` ${prompt}`);
+
+  expect(simulatedDrift).toBeTrue();
+  expect(attached.slice(1)).toBe(prompt);
 });
 
 test("prompt chunks never split a UTF-16 surrogate pair", async () => {
@@ -1004,7 +1083,10 @@ function dialogPage(text: string): { page: Page; pressed: string[] } {
   const button = {
     last: () => button,
     isVisible: async () => matches,
-    press: async (key: string) => { pressed.push(key); },
+    press: async (key: string) => {
+      pressed.push(key);
+      matches = false;
+    },
   };
   const dialog = {
     filter: ({ hasText }: { hasText: string | RegExp }) => {
@@ -1013,11 +1095,15 @@ function dialogPage(text: string): { page: Page; pressed: string[] } {
     },
     last: () => dialog,
     isVisible: async () => matches,
+    waitFor: async ({ state }: { state: string }) => {
+      if (state === "hidden" && matches) throw new Error("dialog remained visible");
+    },
     getByRole: () => button,
   };
   return {
     page: {
       locator: () => dialog,
+      getByRole: () => button,
       getByText: (hasText: string | RegExp) => dialog.filter({ hasText }),
     } as unknown as Page,
     pressed,
@@ -1059,6 +1145,16 @@ test("the known terminal ChatGPT error alert returns a structured retryable fail
   expect(fixture.pressed).toEqual([]);
 });
 
+test("the known terminal ChatGPT error can retry inside the retained browser turn", async () => {
+  const fixture = dialogPage(
+    "Something went wrong. If this issue persists please contact us through our help center at help.openai.com.",
+  );
+
+  expect(await retryChatGptTerminalErrorAlert(fixture.page, 0)).toBe(true);
+  expect(fixture.pressed).toEqual(["Enter"]);
+  await throwIfChatGptTerminalErrorAlert(fixture.page);
+});
+
 test("a failed subscription fetch is retryable and does not falsely invalidate ChatGPT login", async () => {
   const fixture = dialogPage(
     "Failed to load subscription: Something went wrong. If this issue persists please contact us through our help center at help.openai.com.",
@@ -1077,6 +1173,11 @@ test("terminal model errors are scoped to the new assistant turn instead of glob
   const workerSource = readFileSync(new URL("../src/adapters/chatgpt-web/browser-worker.ts", import.meta.url), "utf8");
   expect(workerSource).toContain("throwIfChatGptTerminalErrorAlert(responseTurn)");
   expect(workerSource).not.toContain("throwIfChatGptTerminalErrorAlert(page)");
+  expect(CHATGPT_TERMINAL_ERROR_RETRY_DELAYS_MS).toEqual([5_000, 15_000]);
+  const recovery = workerSource.indexOf("retryChatGptTerminalErrorAlert(responseTurn)");
+  const failure = workerSource.lastIndexOf("throwIfChatGptTerminalErrorAlert(responseTurn)");
+  expect(recovery).toBeGreaterThan(-1);
+  expect(failure).toBeGreaterThan(recovery);
 });
 
 test("submission acceptance stops when its stage is aborted", async () => {

@@ -97,3 +97,13 @@ test("session reminders expose dismissal and a real storage-clearing logout", ()
   assert.match(preloadSource, /logoutChatGpt:[\s\S]*?launcher:browser-logout/);
   assert.match(browserHostSource, /session\.clearStorageData\(\)/);
 });
+
+test("launcher checks for fork updates periodically and on demand while installs remain user-triggered", () => {
+  assert.match(electronMain, /setInterval\(check, UPDATE_CHECK_INTERVAL_MS\)/);
+  assert.match(electronMain, /stopUpdateCheckMonitor\(\)/);
+  assert.match(electronMain, /launcher:update-check[\s\S]*?updateController\.checkAgain\(\)/);
+  assert.match(preloadSource, /checkForUpdates:[\s\S]*?launcher:update-check/);
+  assert.match(preloadSource, /installUpdate:[\s\S]*?launcher:update-install/);
+  assert.match(appSource, /api!\.checkForUpdates\(\)/);
+  assert.match(appSource, /copy\.checkNow/);
+});
