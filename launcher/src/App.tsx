@@ -1305,6 +1305,30 @@ function SettingsSurface({
       setBusy(false);
     }
   };
+  const checkForUpdates = async () => {
+    setError(null);
+    try {
+      await api!.checkForUpdates();
+    } catch (cause) {
+      setError(messageOf(cause));
+    }
+  };
+  const updateCheckDisabled = busy || [
+    "disabled",
+    "checking",
+    "available",
+    "downloading",
+    "installing",
+  ].includes(snapshot.update.status);
+  let updateCheckBody: string = copy.updateCheckBody;
+  if (snapshot.update.status === "checking") updateCheckBody = copy.checkingForUpdates;
+  else if (snapshot.update.status === "up-to-date") updateCheckBody = copy.upToDate;
+  else if (snapshot.update.status === "available") {
+    updateCheckBody = `${copy.updateReady} v${snapshot.update.version}.`;
+  } else if (snapshot.update.status === "downloading" || snapshot.update.status === "installing") {
+    updateCheckBody = copy.updating;
+  } else if (snapshot.update.status === "error") updateCheckBody = snapshot.update.message;
+  else if (snapshot.update.status === "disabled") updateCheckBody = copy.updatesUnavailable;
 
   return (
     <ContentSurface narrow title={copy.settingsTitle}>
@@ -1343,6 +1367,15 @@ function SettingsSurface({
         </SettingRow>
         <SettingRow body={copy.chooseLanguageHint} label={copy.language}>
           <LanguageMenu language={language} onChange={(next) => void updateLanguage(next)} />
+        </SettingRow>
+        <SettingRow body={updateCheckBody} label={copy.softwareUpdates}>
+          <SecondaryButton
+            disabled={updateCheckDisabled}
+            icon="update"
+            onClick={() => void checkForUpdates()}
+          >
+            {snapshot.update.status === "checking" ? copy.checkingForUpdates : copy.checkNow}
+          </SecondaryButton>
         </SettingRow>
       </div>
 

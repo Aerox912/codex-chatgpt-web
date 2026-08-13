@@ -16,21 +16,34 @@ if (Bun.version !== expectedBunVersion) {
   throw new Error(`Runtime bundle requires Bun ${expectedBunVersion}, received ${Bun.version}`);
 }
 
-function embeddedBunExecutable(): string {
+function embeddedBunRuntime(): { executable: string; version: string; revision?: string } {
   const configured = process.env.CODEX_CHATGPT_WEB_EMBEDDED_BUN;
-  if (!configured) return realpathSync(process.execPath);
-  if (!isAbsolute(configured)) throw new Error("CODEX_CHATGPT_WEB_EMBEDDED_BUN must be an absolute path");
-  const executable = realpathSync(configured);
+  if (configured && !isAbsolute(configured)) {
+    throw new Error("CODEX_CHATGPT_WEB_EMBEDDED_BUN must be an absolute path");
+  }
+  const executable = realpathSync(configured || process.execPath);
   const version = Bun.spawnSync([executable, "--version"], { stdout: "pipe", stderr: "pipe" });
   if (version.exitCode !== 0) {
     throw new Error(`Embedded Bun validation failed: ${version.stderr.toString() || version.stdout.toString()}`);
   }
   const reported = version.stdout.toString().trim();
-  if (reported !== expectedBunVersion) {
+  const expectedRevision = process.env.CODEX_CHATGPT_WEB_EMBEDDED_BUN_REVISION?.trim();
+  if (!expectedRevision && reported !== expectedBunVersion) {
     throw new Error(`Embedded Bun must be ${expectedBunVersion}, received ${reported || "no version"}`);
   }
-  return executable;
+  if (!expectedRevision) return { executable, version: reported };
+
+  const revision = Bun.spawnSync([executable, "--revision"], { stdout: "pipe", stderr: "pipe" });
+  if (revision.exitCode !== 0) {
+    throw new Error(`Embedded Bun revision validation failed: ${revision.stderr.toString() || revision.stdout.toString()}`);
+  }
+  const reportedRevision = revision.stdout.toString().trim();
+  if (reportedRevision !== expectedRevision) {
+    throw new Error(`Embedded Bun revision must be ${expectedRevision}, received ${reportedRevision || "no revision"}`);
+  }
+  return { executable, version: reported, revision: reportedRevision };
 }
+const embeddedBun = embeddedBunRuntime();
 const output = resolve(process.argv[2] ?? join(root, "dist", "runtime"));
 const appDir = join(output, "app");
 const runtimeDir = join(output, "runtime");
@@ -79,7 +92,7 @@ if (install.exitCode !== 0) {
   throw new Error(`Runtime dependencies failed to install: ${install.stderr.toString() || install.stdout.toString()}`);
 }
 const bunName = process.platform === "win32" ? "bun.exe" : "bun";
-cpSync(embeddedBunExecutable(), join(runtimeDir, bunName));
+cpSync(embeddedBun.executable, join(runtimeDir, bunName));
 if (process.platform !== "win32") chmodSync(join(runtimeDir, bunName), 0o755);
 
 const launcherName = process.platform === "win32" ? "codex-chatgpt-web.cmd" : "codex-chatgpt-web";
@@ -124,7 +137,8 @@ writeFileSync(join(output, "manifest.json"), `${JSON.stringify({
   schemaVersion: 1,
   appVersion: VERSION,
   bundleId: bundleId.digest("hex"),
-  bunVersion: Bun.version,
+  bunVersion: embeddedBun.version,
+  ...(embeddedBun.revision ? { bunRevision: embeddedBun.revision } : {}),
   platform: process.platform,
   arch: process.arch,
   launcher: `bin/${launcherName}`,
