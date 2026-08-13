@@ -1,6 +1,6 @@
 {
   "name": "codex-web-gpt-launcher",
-  "version": "2.1.9",
+  "version": "2.1.9-patch.1",
   "private": true,
   "description": "Desktop control center for Codex ChatGPT Web",
   "author": "miuuyy",
@@ -17,6 +17,7 @@
     "package:win": "bun run build && bun run build:runtime && bun run scripts/package.cjs --win",
     "package:linux": "bun run build && bun run build:runtime && bun run scripts/package.cjs --linux",
     "smoke:package": "bun run scripts/smoke-package.cjs",
+    "inspect:package:win": "node scripts/inspect-windows-package.cjs",
     "test": "node --test tests/*.test.cjs",
     "start": "electron ."
   },

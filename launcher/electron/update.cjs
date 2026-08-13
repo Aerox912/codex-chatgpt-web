@@ -6,10 +6,11 @@ const path = require("node:path");
 const { spawn, spawnSync } = require("node:child_process");
 const { pipeline } = require("node:stream/promises");
 
-const REPOSITORY = "miuuyy/codex-chatgpt-web";
+const REPOSITORY = "Aerox912/codex-chatgpt-web";
 const RELEASE_API_URL = `https://api.github.com/repos/${REPOSITORY}/releases/latest`;
 const USER_AGENT = "codex-web-gpt-launcher-updater";
 const MAX_REDIRECTS = 5;
+const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1_000;
 
 function parseVersion(value) {
   const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(String(value || "").trim());
@@ -241,6 +242,7 @@ function createUpdateController({
   const supportedAsset = releaseAssetName(currentVersion, platform, arch);
   let state = packaged && supportedAsset ? { status: "idle" } : { status: "disabled" };
   let checked = false;
+  let checkInFlight = null;
   let pending = null;
   let candidate = null;
 
@@ -250,39 +252,54 @@ function createUpdateController({
     return state;
   };
 
-  async function checkOnce() {
-    if (state.status === "disabled" || checked) return state;
+  async function check({ repeat = false } = {}) {
+    if (checkInFlight) return checkInFlight;
+    if (state.status === "disabled"
+      || state.status === "available"
+      || state.status === "downloading"
+      || state.status === "installing"
+      || (!repeat && checked)) return state;
     checked = true;
-    transition({ status: "checking" });
+    checkInFlight = (async () => {
+      transition({ status: "checking" });
+      try {
+        const release = await deps.fetchRelease();
+        const version = releaseVersion(release?.tag_name);
+        if (compareVersions(version, currentVersion) <= 0) {
+          candidate = null;
+          return transition({ status: "up-to-date" });
+        }
+        const assetName = releaseAssetName(version, platform, arch);
+        if (!assetName) return transition({ status: "disabled" });
+        const assets = Array.isArray(release?.assets) ? release.assets : [];
+        const asset = assets.find((item) => item?.name === assetName);
+        const checksums = assets.find((item) => item?.name === "checksums.txt");
+        if (!asset?.browser_download_url || !checksums?.browser_download_url) {
+          throw new Error(`Release v${version} is missing ${assetName} or checksums.txt`);
+        }
+        candidate = {
+          version,
+          assetName,
+          assetUrl: validateReleaseAssetUrl(asset.browser_download_url, version, assetName),
+          checksumsUrl: validateReleaseAssetUrl(checksums.browser_download_url, version, "checksums.txt"),
+        };
+        logger?.info("launcher.update_available", { currentVersion, version, platform, arch });
+        return transition({ status: "available", version });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger?.warn("launcher.update_check_failed", { message });
+        return transition({ status: "error", message });
+      }
+    })();
     try {
-      const release = await deps.fetchRelease();
-      const version = releaseVersion(release?.tag_name);
-      if (compareVersions(version, currentVersion) <= 0) {
-        candidate = null;
-        return transition({ status: "up-to-date" });
-      }
-      const assetName = releaseAssetName(version, platform, arch);
-      if (!assetName) return transition({ status: "disabled" });
-      const assets = Array.isArray(release?.assets) ? release.assets : [];
-      const asset = assets.find((item) => item?.name === assetName);
-      const checksums = assets.find((item) => item?.name === "checksums.txt");
-      if (!asset?.browser_download_url || !checksums?.browser_download_url) {
-        throw new Error(`Release v${version} is missing ${assetName} or checksums.txt`);
-      }
-      candidate = {
-        version,
-        assetName,
-        assetUrl: validateReleaseAssetUrl(asset.browser_download_url, version, assetName),
-        checksumsUrl: validateReleaseAssetUrl(checksums.browser_download_url, version, "checksums.txt"),
-      };
-      logger?.info("launcher.update_available", { currentVersion, version, platform, arch });
-      return transition({ status: "available", version });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      logger?.warn("launcher.update_check_failed", { message });
-      return transition({ status: "error", message });
+      return await checkInFlight;
+    } finally {
+      checkInFlight = null;
     }
   }
+
+  const checkOnce = () => check();
+  const checkAgain = () => check({ repeat: true });
 
   async function beginInstall() {
     if (pending) throw new Error("An update is already being prepared");
@@ -344,6 +361,7 @@ function createUpdateController({
   return {
     getState: () => state,
     checkOnce,
+    checkAgain,
     beginInstall,
     cancelInstall,
   };
@@ -358,5 +376,6 @@ module.exports = {
   parseVersion,
   releaseAssetName,
   releaseVersion,
+  UPDATE_CHECK_INTERVAL_MS,
   validateReleaseAssetUrl,
 };

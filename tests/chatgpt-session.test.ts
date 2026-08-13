@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   CHATGPT_COMPOSER_SELECTOR,
+  assertAuthenticatedChatGptPage,
   CHATGPT_EFFORT_CONTROL_SELECTOR,
   detectChatGptAccountCapabilities,
 } from "../src/chatgpt-session";
@@ -18,6 +19,28 @@ test("the effort selector identifies the model slider instead of any composer me
   expect(CHATGPT_EFFORT_CONTROL_SELECTOR).toContain('[data-animated-slider-trigger="true"]');
   expect(CHATGPT_EFFORT_CONTROL_SELECTOR).toContain('[data-testid="model-switcher-dropdown-button"]');
   expect(CHATGPT_EFFORT_CONTROL_SELECTOR).not.toBe('button[aria-haspopup="menu"]');
+});
+
+function authenticationPage(authenticated: boolean) {
+  const composer = {
+    count: async () => 1,
+    nth() { return this; },
+    isVisible: async () => true,
+  };
+  return {
+    locator: () => composer,
+    evaluate: async () => authenticated,
+  };
+}
+
+test("a signed-out guest composer does not complete ChatGPT login", async () => {
+  await expect(assertAuthenticatedChatGptPage(authenticationPage(false) as never)).rejects.toThrow(
+    "no signed-in account session is present",
+  );
+});
+
+test("a visible composer with a signed-in account session completes ChatGPT login", async () => {
+  await expect(assertAuthenticatedChatGptPage(authenticationPage(true) as never)).resolves.toBeUndefined();
 });
 
 test("a complete authenticated composer with no effort selector is Luna-only", async () => {
