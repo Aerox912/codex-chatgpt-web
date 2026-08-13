@@ -24,6 +24,12 @@ export const CHATGPT_WEB_MEDIUM_HIGH_COMPOSER_CHAR_LIMIT = 1_048_572;
 export const CHATGPT_WEB_PLATFORM_RESERVE_TOKENS = 8_192;
 /** Pro-account usable browser windows and separately measured one-message boundaries. */
 export const CHATGPT_WEB_PRO_AUTO_COMPACT_TOKEN_LIMIT = 95_000;
+/**
+ * Extra High needs substantially more headroom for long reasoning and orchestrated tool turns.
+ * Compact its canonical Codex history early through the existing `/responses/compact` path rather
+ * than repeatedly submitting one large browser message near the product's unstable long-turn range.
+ */
+export const CHATGPT_WEB_PRO_XHIGH_AUTO_COMPACT_TOKEN_LIMIT = 48_000;
 export const CHATGPT_WEB_PRO_STANDARD_MESSAGE_TOKEN_LIMIT = 103_000;
 export const CHATGPT_WEB_PRO_MODEL_MESSAGE_TOKEN_LIMIT = 104_000;
 // Browser message maxima are inclusive, while the context preflight treats its ceiling as an
@@ -85,7 +91,10 @@ export function resolveChatGptWebContextLimits(
       : effort === "max"
         ? CHATGPT_WEB_PRO_MODEL_CONTEXT_WINDOW
         : CHATGPT_WEB_PRO_STANDARD_CONTEXT_WINDOW;
-    return contextLimits(contextWindow, CHATGPT_WEB_PRO_AUTO_COMPACT_TOKEN_LIMIT);
+    const autoCompactTokenLimit = effort === "xhigh"
+      ? CHATGPT_WEB_PRO_XHIGH_AUTO_COMPACT_TOKEN_LIMIT
+      : CHATGPT_WEB_PRO_AUTO_COMPACT_TOKEN_LIMIT;
+    return contextLimits(contextWindow, autoCompactTokenLimit);
   }
 
   if (effort === "low") {
