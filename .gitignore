@@ -19,3 +19,6 @@ launcher/.smoke-*/
 launcher/build/
 launcher/release/
 launcher/artifacts/
+agent_docs/
+.codex_workflow_hidden_resources/
+AGENTS.md
