@@ -74,6 +74,25 @@ export async function assertAuthenticatedChatGptPage(page: Page): Promise<void> 
   if (!await anyVisible(composer)) {
     throw new Error("ChatGPT authentication could not be verified: no visible composer is present");
   }
+  const authenticated = await page.evaluate(async () => {
+    try {
+      const response = await fetch("/api/auth/session", {
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: { accept: "application/json" },
+      });
+      if (!response.ok) return false;
+      const session = await response.json() as unknown;
+      if (!session || typeof session !== "object" || Array.isArray(session)) return false;
+      const user = (session as Record<string, unknown>).user;
+      return Boolean(user && typeof user === "object" && !Array.isArray(user));
+    } catch {
+      return false;
+    }
+  });
+  if (!authenticated) {
+    throw new Error("ChatGPT authentication could not be verified: no signed-in account session is present");
+  }
 }
 
 export async function assertTemporaryChatPage(page: Page): Promise<void> {
