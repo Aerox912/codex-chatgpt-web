@@ -1,0 +1,31 @@
+{
+  "name": "codex-chatgpt-web",
+  "version": "2.1.10-patch.1",
+  "description": "Operate an explicitly installed Aerox912 Codex ChatGPT Web bridge without bundling or installing its launcher.",
+  "author": {
+    "name": "Aerox912",
+    "url": "https://github.com/Aerox912"
+  },
+  "homepage": "https://github.com/Aerox912/codex-chatgpt-web",
+  "repository": "https://github.com/Aerox912/codex-chatgpt-web",
+  "license": "MIT",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Codex ChatGPT Web (Aerox912 Fork)",
+    "shortDescription": "Operate and diagnose an explicitly installed ChatGPT Web bridge",
+    "longDescription": "This companion plugin documents safe operation and diagnostics for the Aerox912 Codex ChatGPT Web fork. The launcher, browser profile, Responses bridge, and Codex model integration remain separate software and are never installed merely by adding this plugin.",
+    "developerName": "Aerox912 (fork; upstream by miuuyy)",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/Aerox912/codex-chatgpt-web",
+    "defaultPrompt": [
+      "Diagnose my existing Codex ChatGPT Web setup without reinstalling it.",
+      "Explain how the ChatGPT Web model bridge fits into Codex.",
+      "Check the health of an explicitly installed ChatGPT Web launcher."
+    ]
+  }
+}
