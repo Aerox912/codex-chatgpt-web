@@ -175,9 +175,9 @@ capture a screenshot at every checkpoint during an investigation.
 
 - This is unofficial browser automation, not an OpenAI API. ChatGPT UI changes can break selectors;
   drift fails explicitly instead of silently switching model or transport.
-- ChatGPT's account-specific composer ceilings are smaller than some underlying model windows.
-  The measured boundaries and requirements for a larger deterministic transport are tracked in
-  [#76](https://github.com/miuuyy/codex-chatgpt-web/issues/76).
+- Prompts longer than 10,000 characters use ChatGPT's native pasted-text attachment conversion,
+  which bypasses the inline composer boundary. Attachments do not enlarge the model context window;
+  Codex compaction and conservative token accounting still apply.
 - Browser state is a sensitive login artifact, and the loopback listener is reachable by processes
   running as the same local user. Never share the launcher profile; use a trusted workstation.
 - Release packages currently target macOS 13+ (arm64/x64), Windows x64, and Linux x64. The browser

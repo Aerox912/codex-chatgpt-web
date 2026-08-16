@@ -61,16 +61,20 @@ server-authenticated session and the Temporary Chat composer in the primary owne
 the temporary auth view. There is no browser-profile handoff, cookie import, CDP login port, or
 temporary session-transfer directory.
 
-The current compiled Codex task context is inserted as one inline JSON envelope. Image bytes stay
-out of the JSON and are attached natively with stable references. The runtime does not create a
-context JSONL file, upload a synthetic context document, include prompt hashes, or silently truncate
-the envelope. Attachment acceptance and send readiness are verified before the turn begins.
+The compiled Codex task context remains one JSON envelope. Prompts up to ChatGPT's 10,000-character
+large-paste boundary are inserted inline with exact verification. Longer prompts are applied through
+one editor fill so ChatGPT can convert the complete envelope into its native pasted-text attachment;
+the runtime then verifies that the editor is empty and the attachment-only message is sendable before
+adding a small inline instruction. Image bytes stay out of the JSON and are attached natively with
+stable references. The runtime does not create a context JSONL file, include prompt hashes, or
+silently truncate the envelope. Attachment acceptance and send readiness are verified before the
+turn begins.
 
 The appended models advertise the authenticated account's context window and a ten-percent
 auto-compaction reserve. Usage is counted with the GPT-5 tokenizer plus fixed platform/image
-reserves, rather than inferred from character length. The ChatGPT composer also has an independent
-inline-size boundary: usage accounting asks Codex to compact before that boundary, and a prompt
-that still exceeds the proven hard ceiling fails explicitly before any browser turn opens.
+reserves, rather than inferred from character length. The native pasted-text transport bypasses the
+composer's inline character and visible-message boundaries, but it does not change the model context
+window advertised to Codex or the conservative token accounting used for compaction.
 
 Routed compaction v1/v2 runs as a dedicated read-only browser summarization turn with no broker or
 local tools, then returns the native replacement-history shape expected by Codex. A prompt-level

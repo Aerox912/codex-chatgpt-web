@@ -380,7 +380,7 @@ test("uses the public Instant name without leaking the browser menu alias into t
   expect(compiled.text).not.toContain("Instant 5.5");
 });
 
-test("keeps large contexts intact in the inline text envelope", () => {
+test("keeps large contexts intact in the compiled text envelope", () => {
   const token = "turn_12345678901234567890123456789012";
   const largeContent = "x".repeat(600_000);
   const large = request("high");

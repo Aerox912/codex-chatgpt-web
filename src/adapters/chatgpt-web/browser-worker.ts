@@ -230,6 +230,7 @@ export function assertChatGptWebInputWithinLimits(
   effort: ChatGptWebModelMode["effort"],
   capabilities: ChatGptWebCapabilities,
   promptChars?: number,
+  transport: ChatGptPromptTransport = "inline",
 ): void {
   if (modelId !== CHATGPT_WEB_MODEL_ID && modelId !== CHATGPT_WEB_LUNA_MODEL_ID) {
     throw new Error(`ChatGPT web context limit is not defined for model: ${modelId}`);
@@ -250,7 +251,8 @@ export function assertChatGptWebInputWithinLimits(
     capabilities,
   );
   if (
-    browserComposerCharLimit !== undefined
+    transport === "inline"
+    && browserComposerCharLimit !== undefined
     && promptChars !== undefined
     && promptChars > browserComposerCharLimit
   ) {
@@ -259,7 +261,11 @@ export function assertChatGptWebInputWithinLimits(
       { status: 400, errorType: "invalid_request_error", code: "context_length_exceeded", retryable: false },
     );
   }
-  if (browserMessageTokenLimit !== undefined && estimatedMessageTokens > browserMessageTokenLimit) {
+  if (
+    transport === "inline"
+    && browserMessageTokenLimit !== undefined
+    && estimatedMessageTokens > browserMessageTokenLimit
+  ) {
     throw new ChatGptWebAdapterError(
       `This prompt requires ${estimatedMessageTokens.toLocaleString("en-US")} visible message tokens, which exceeds the measured ${browserMessageTokenLimit.toLocaleString("en-US")}-token ChatGPT browser message boundary for this account and effort. The model context window is ${contextWindow.toLocaleString("en-US")} tokens; run /compact to reduce the next browser message without changing that model window.`,
       { status: 400, errorType: "invalid_request_error", code: "context_length_exceeded", retryable: false },
@@ -288,9 +294,31 @@ const browserStageTimeouts = {
  * another irreversible edit. This is independent of model context and compaction limits.
  */
 export const CHATGPT_PROMPT_INSERT_CHUNK_CHARS = 16_000;
+/** ChatGPT converts one composer fill longer than this product boundary into a text attachment. */
+export const CHATGPT_NATIVE_PASTE_ATTACHMENT_THRESHOLD_CHARS = 10_000;
+export const CHATGPT_NATIVE_PASTE_ATTACHMENT_INSTRUCTION =
+  "Read the attached pasted text as the complete Codex task request and context, follow its instructions, and complete the task.";
+export type ChatGptPromptTransport = "inline" | "native-paste-attachment";
 export const CHATGPT_COMPOSER_DOCUMENT_END_KEY = process.platform === "darwin"
   ? "Meta+ArrowDown"
   : "Control+End";
+
+export function chatGptPromptTransport(text: string): ChatGptPromptTransport {
+  return chatGptComposerText(text).length > CHATGPT_NATIVE_PASTE_ATTACHMENT_THRESHOLD_CHARS
+    ? "native-paste-attachment"
+    : "inline";
+}
+
+export function assertChatGptWebPromptAttachmentCount(
+  imageCount: number,
+  transport: ChatGptPromptTransport,
+): void {
+  if (transport !== "native-paste-attachment" || imageCount < CHATGPT_MAX_INPUT_IMAGES) return;
+  throw new ChatGptWebAdapterError(
+    `An oversized prompt consumes one of ChatGPT's ${CHATGPT_MAX_INPUT_IMAGES} attachment slots; this turn can include at most ${CHATGPT_MAX_INPUT_IMAGES - 1} images.`,
+    { status: 400, errorType: "invalid_request_error", code: "too_many_attachments", retryable: false },
+  );
+}
 
 function throwIfPromptAttachmentAborted(signal?: AbortSignal): void {
   if (signal?.aborted) throw new DOMException("ChatGPT prompt attachment aborted", "AbortError");
@@ -1345,6 +1373,31 @@ export class ChatGptBrowserWorker {
   ): Promise<void> {
     throwIfPromptAttachmentAborted(abortSignal);
     const composerPrompt = chatGptComposerText(prompt);
+    if (chatGptPromptTransport(composerPrompt) === "native-paste-attachment") {
+      const composer = await this.activeComposer(page);
+      // ChatGPT's native large-paste behavior is tied to one complete editor fill. Chunked
+      // Input.insertText deliberately bypasses it, so keep that exact transport only for prompts
+      // that remain inline. The postcondition below distinguishes a real converted attachment
+      // from a silently lost or partially preserved prompt.
+      await composer.fill(composerPrompt);
+      await this.waitForNativePasteAttachmentReady(page, composerPrompt, abortSignal);
+
+      const routedComposer = localTools
+        ? await this.selectConnector(page, captureDiagnostic, catalogRefreshAvailable)
+        : await this.activeComposer(page);
+      // Selecting the connector replaces the Lexical subtree. Before adding the small inline
+      // instruction, require the attachment-only message to remain independently sendable.
+      await this.waitForNativePasteAttachmentReady(page, composerPrompt, abortSignal);
+      await routedComposer.focus();
+      if (localTools) await page.keyboard.press(CHATGPT_COMPOSER_DOCUMENT_END_KEY);
+      await this.insertPromptText(
+        page,
+        `${localTools ? " " : ""}${CHATGPT_NATIVE_PASTE_ATTACHMENT_INSTRUCTION}`,
+        abortSignal,
+      );
+      await this.assertPromptAttached(page, CHATGPT_NATIVE_PASTE_ATTACHMENT_INSTRUCTION, abortSignal);
+      return;
+    }
     if (!localTools) {
       const composer = await this.activeComposer(page);
       // Playwright's multiline fill maps through an input action that ChatGPT's Lexical editor can
@@ -1365,6 +1418,44 @@ export class ChatGptBrowserWorker {
     await page.keyboard.press(CHATGPT_COMPOSER_DOCUMENT_END_KEY);
     await this.insertPromptText(page, ` ${composerPrompt}`, abortSignal);
     await this.assertPromptAttached(page, composerPrompt, abortSignal);
+  }
+
+  private async waitForNativePasteAttachmentReady(
+    page: Page,
+    originalPrompt: string,
+    abortSignal?: AbortSignal,
+  ): Promise<void> {
+    const deadline = Date.now() + 60_000;
+    let observed = "";
+    let sendVisible = false;
+    let sendEnabled = false;
+    while (Date.now() < deadline) {
+      throwIfPromptAttachmentAborted(abortSignal);
+      observed = await this.attachedPromptText(page);
+      const composer = await this.activeComposer(page);
+      const send = composer
+        .locator("xpath=ancestor::form[1]")
+        .getByTestId("send-button");
+      [sendVisible, sendEnabled] = await Promise.all([
+        send.isVisible().catch(() => false),
+        send.isEnabled().catch(() => false),
+      ]);
+      throwIfPromptAttachmentAborted(abortSignal);
+      // An empty editor cannot be sent by itself. Empty text plus an enabled send control is the
+      // stable, locale-independent proof that ChatGPT owns a ready attachment for this message.
+      if (observed === "" && sendVisible && sendEnabled) return;
+      await new Promise(resolveSleep => setTimeout(resolveSleep, 100));
+    }
+    throwIfPromptAttachmentAborted(abortSignal);
+    if (observed === originalPrompt) {
+      throw new Error(
+        `ChatGPT did not convert the ${originalPrompt.length.toLocaleString("en-US")}-character prompt into its native pasted-text attachment`,
+      );
+    }
+    throw new Error(
+      `ChatGPT did not preserve the oversized prompt as a ready native attachment`
+      + ` (inlineChars=${observed.length}, sendVisible=${sendVisible}, sendEnabled=${sendEnabled})`,
+    );
   }
 
   private async reanchorPromptCaret(page: Page, abortSignal?: AbortSignal): Promise<void> {
@@ -1881,6 +1972,8 @@ export class ChatGptBrowserWorker {
       if (turn.abortSignal?.aborted) throw new DOMException("ChatGPT web turn aborted", "AbortError");
       const estimatedInputTokens = estimateCompiledChatGptWebInputTokens(prepared, turn.modelId);
       const estimatedMessageTokens = estimateCompiledChatGptWebMessageTokens(prepared, turn.modelId);
+      const promptTransport = chatGptPromptTransport(prepared.text);
+      assertChatGptWebPromptAttachmentCount(prepared.images.length, promptTransport);
       assertChatGptWebInputWithinLimits(
         estimatedInputTokens,
         estimatedMessageTokens,
@@ -1888,6 +1981,7 @@ export class ChatGptBrowserWorker {
         requestedMode.effort,
         turn.capabilities,
         prepared.text.length,
+        promptTransport,
       );
       const deadline = this.config.turnTimeoutMs === undefined
         ? undefined
@@ -1919,7 +2013,7 @@ export class ChatGptBrowserWorker {
       diagnosticPage = page;
       await diagnostics.capture(page, "browser-page-acquired");
       console.info(
-        `[chatgpt-web] browser turn ${turn.traceId} opened (transport=inline, promptChars=${prepared.text.length}, estimatedInputTokens=${estimatedInputTokens}, images=${prepared.images.length}, compactionTrimmedMessages=${prepared.trimmedCompactionMessages ?? 0})`,
+        `[chatgpt-web] browser turn ${turn.traceId} opened (transport=${promptTransport}, promptChars=${prepared.text.length}, estimatedInputTokens=${estimatedInputTokens}, images=${prepared.images.length}, compactionTrimmedMessages=${prepared.trimmedCompactionMessages ?? 0})`,
       );
       await this.runStage(
         turn.traceId,

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import type { Page } from "playwright-core";
-import { CHATGPT_COMPOSER_DOCUMENT_END_KEY, CHATGPT_PROMPT_INSERT_CHUNK_CHARS, CHATGPT_TERMINAL_ERROR_RETRY_DELAYS_MS, ChatGptBrowserWorker, ChatGptTurnDomHealthTracker, ChatGptVisibleTraceTracker, MAX_CHATGPT_BROWSER_TABS, assertChatGptWebInputWithinLimits, browserDiagnosticCheckpoint, browserDiagnosticIncludesScreenshot, chatGptSubmissionEvidence, isChatGptTraceControl, redactChatGptUiDiagnostic, resolveBrowserConfig, resolveChatGptToolConfirmation, retryChatGptTerminalErrorAlert, stripChatGptTraceControlSuffix, throwIfChatGptRateLimitDialog, throwIfChatGptSessionFailureAlert, throwIfChatGptTerminalErrorAlert } from "../src/adapters/chatgpt-web/browser-worker";
+import { CHATGPT_COMPOSER_DOCUMENT_END_KEY, CHATGPT_NATIVE_PASTE_ATTACHMENT_INSTRUCTION, CHATGPT_NATIVE_PASTE_ATTACHMENT_THRESHOLD_CHARS, CHATGPT_PROMPT_INSERT_CHUNK_CHARS, CHATGPT_TERMINAL_ERROR_RETRY_DELAYS_MS, ChatGptBrowserWorker, ChatGptTurnDomHealthTracker, ChatGptVisibleTraceTracker, MAX_CHATGPT_BROWSER_TABS, assertChatGptWebInputWithinLimits, assertChatGptWebPromptAttachmentCount, browserDiagnosticCheckpoint, browserDiagnosticIncludesScreenshot, chatGptPromptTransport, chatGptSubmissionEvidence, isChatGptTraceControl, redactChatGptUiDiagnostic, resolveBrowserConfig, resolveChatGptToolConfirmation, retryChatGptTerminalErrorAlert, stripChatGptTraceControlSuffix, throwIfChatGptRateLimitDialog, throwIfChatGptSessionFailureAlert, throwIfChatGptTerminalErrorAlert } from "../src/adapters/chatgpt-web/browser-worker";
 import { CHATGPT_WEB_MODEL_ID } from "../src/adapters/chatgpt-web/model";
 import { compileChatGptWebPrompt } from "../src/adapters/chatgpt-web/prompt";
 import { CHATGPT_CONNECTOR_NAME, defaultChromeExecutable, legacyChatGptConnectorMigrationMessage } from "../src/config";
@@ -173,8 +173,8 @@ test("active composer resolution waits for exactly one visible editor", async ()
   expect(await activeComposer.call({}, page, 500)).toBe(composer);
 });
 
-test("large read-only context is inserted as contiguous bounded edits before exact verification", async () => {
-  const prompt = `Act as the model backend for the Codex task encoded below.\n${"x".repeat(819_343)}`;
+test("a prompt at the native conversion boundary remains exact inline text", async () => {
+  const prompt = "x".repeat(CHATGPT_NATIVE_PASTE_ATTACHMENT_THRESHOLD_CHARS);
   const calls: Array<[string, string?]> = [];
   let asserted = "";
   const composer = {
@@ -205,20 +205,144 @@ test("large read-only context is inserted as contiguous bounded edits before exa
   }, page, prompt, false);
 
   const inserted = calls.filter(call => call[0] === "insertText").map(call => call[1] ?? "");
-  const fullChunkCount = Math.floor((prompt.length - 1) / CHATGPT_PROMPT_INSERT_CHUNK_CHARS);
   expect(calls.slice(0, 2)).toEqual([["fill", ""], ["focus"]]);
-  expect(inserted.every(chunk => chunk.length <= CHATGPT_PROMPT_INSERT_CHUNK_CHARS)).toBeTrue();
-  expect(inserted.length).toBe(Math.ceil(prompt.length / CHATGPT_PROMPT_INSERT_CHUNK_CHARS));
-  expect(inserted.join("")).toBe(prompt);
-  expect(calls.filter(call => call[0] === "chunkCommitted")).toEqual(
-    Array.from({ length: fullChunkCount }, (_value, index) => [
-      "chunkCommitted",
-      String((index + 1) * CHATGPT_PROMPT_INSERT_CHUNK_CHARS),
-    ]),
-  );
-  expect(calls.filter(call => call[0] === "reanchor")).toHaveLength(fullChunkCount);
+  expect(inserted).toEqual([prompt]);
+  expect(calls.filter(call => call[0] === "chunkCommitted")).toEqual([]);
+  expect(calls.filter(call => call[0] === "reanchor")).toHaveLength(0);
   expect(calls.filter(call => call[0] === "press")).toEqual([]);
   expect(asserted).toBe(prompt);
+  expect(chatGptPromptTransport(prompt)).toBe("inline");
+});
+
+test("an oversized prompt uses ChatGPT's native pasted-text attachment before a small inline instruction", async () => {
+  const prompt = "x".repeat(CHATGPT_NATIVE_PASTE_ATTACHMENT_THRESHOLD_CHARS + 1);
+  const calls: Array<[string, string?]> = [];
+  let attachedText = "";
+  let nativeAttachmentReady = false;
+  const sendButton = {
+    isVisible: async () => true,
+    isEnabled: async () => nativeAttachmentReady,
+  };
+  const composer = {
+    fill: async (value: string) => {
+      calls.push(["fill", value]);
+      attachedText = "";
+      nativeAttachmentReady = value.length > CHATGPT_NATIVE_PASTE_ATTACHMENT_THRESHOLD_CHARS;
+    },
+    focus: async () => { calls.push(["focus"]); },
+    locator: (selector: string) => {
+      expect(selector).toBe("xpath=ancestor::form[1]");
+      return {
+        getByTestId: (testId: string) => {
+          expect(testId).toBe("send-button");
+          return sendButton;
+        },
+      };
+    },
+  };
+  const page = {
+    keyboard: {
+      insertText: async (value: string) => {
+        calls.push(["insertText", value]);
+        attachedText += value;
+      },
+    },
+  };
+  const attachPrompt = (ChatGptBrowserWorker.prototype as unknown as {
+    attachPrompt(page: unknown, prompt: string, localTools: boolean): Promise<void>;
+  }).attachPrompt;
+  const insertPromptText = (ChatGptBrowserWorker.prototype as unknown as {
+    insertPromptText(page: unknown, text: string): Promise<void>;
+  }).insertPromptText;
+  const waitForNativePasteAttachmentReady = (ChatGptBrowserWorker.prototype as unknown as {
+    waitForNativePasteAttachmentReady(page: unknown, prompt: string): Promise<void>;
+  }).waitForNativePasteAttachmentReady;
+
+  await attachPrompt.call({
+    activeComposer: async () => composer,
+    attachedPromptText: async () => attachedText.trimStart(),
+    waitForNativePasteAttachmentReady,
+    insertPromptText,
+    assertPromptAttached: async (_page: unknown, expected: string) => {
+      expect(attachedText).toBe(expected);
+    },
+  }, page, prompt, false);
+
+  expect(chatGptPromptTransport(prompt)).toBe("native-paste-attachment");
+  expect(calls).toEqual([
+    ["fill", prompt],
+    ["focus"],
+    ["insertText", CHATGPT_NATIVE_PASTE_ATTACHMENT_INSTRUCTION],
+  ]);
+});
+
+test("an oversized tool-capable prompt retains its native attachment while selecting the connector", async () => {
+  const prompt = "x".repeat(CHATGPT_NATIVE_PASTE_ATTACHMENT_THRESHOLD_CHARS + 1);
+  const calls: Array<[string, string?]> = [];
+  let attachedText = "";
+  let nativeAttachmentReady = false;
+  const composer = {
+    fill: async (value: string) => {
+      calls.push(["fill", value]);
+      attachedText = "";
+      nativeAttachmentReady = true;
+    },
+    focus: async () => { calls.push(["focus"]); },
+    locator: () => ({
+      getByTestId: () => ({
+        isVisible: async () => true,
+        isEnabled: async () => nativeAttachmentReady,
+      }),
+    }),
+  };
+  const page = {
+    keyboard: {
+      press: async (value: string) => { calls.push(["press", value]); },
+      insertText: async (value: string) => {
+        calls.push(["insertText", value]);
+        attachedText += value;
+      },
+    },
+  };
+  const attachPrompt = (ChatGptBrowserWorker.prototype as unknown as {
+    attachPrompt(page: unknown, prompt: string, localTools: boolean): Promise<void>;
+  }).attachPrompt;
+  const insertPromptText = (ChatGptBrowserWorker.prototype as unknown as {
+    insertPromptText(page: unknown, text: string): Promise<void>;
+  }).insertPromptText;
+  const waitForNativePasteAttachmentReady = (ChatGptBrowserWorker.prototype as unknown as {
+    waitForNativePasteAttachmentReady(page: unknown, prompt: string): Promise<void>;
+  }).waitForNativePasteAttachmentReady;
+
+  await attachPrompt.call({
+    activeComposer: async () => composer,
+    attachedPromptText: async () => attachedText.trimStart(),
+    waitForNativePasteAttachmentReady,
+    selectConnector: async () => {
+      calls.push(["selectConnector"]);
+      return composer;
+    },
+    insertPromptText,
+    assertPromptAttached: async (_page: unknown, expected: string) => {
+      expect(attachedText.trimStart()).toBe(expected);
+    },
+  }, page, prompt, true);
+
+  expect(calls).toEqual([
+    ["fill", prompt],
+    ["selectConnector"],
+    ["focus"],
+    ["press", CHATGPT_COMPOSER_DOCUMENT_END_KEY],
+    ["insertText", ` ${CHATGPT_NATIVE_PASTE_ATTACHMENT_INSTRUCTION}`],
+  ]);
+});
+
+test("the native prompt attachment reserves one of ChatGPT's ten file slots", () => {
+  expect(() => assertChatGptWebPromptAttachmentCount(10, "inline")).not.toThrow();
+  expect(() => assertChatGptWebPromptAttachmentCount(9, "native-paste-attachment")).not.toThrow();
+  expect(() => assertChatGptWebPromptAttachmentCount(10, "native-paste-attachment")).toThrow(
+    "at most 9 images",
+  );
 });
 
 test("multi-chunk prompt insertion repairs a drifted Lexical caret after each exact prefix", async () => {
@@ -297,7 +421,7 @@ test("prompt insertion never sends the six-figure native edit that rewrites the 
 });
 
 test("prompt attachment canonicalizes Windows line endings before chunk verification", async () => {
-  const prompt = `${"x".repeat(CHATGPT_PROMPT_INSERT_CHUNK_CHARS - 1)}\r\n${"y".repeat(457)}`;
+  const prompt = `${"x".repeat(8_999)}\r\n${"y".repeat(457)}`;
   const canonicalPrompt = prompt.replace(/\r\n?/g, "\n");
   const inserted: string[] = [];
   let attached = "";
@@ -1341,6 +1465,24 @@ test("browser preflight separates model context from one-message transport limit
     pro,
     520_001,
   )).toThrow("104,000-token ChatGPT browser message boundary");
+  expect(() => assertChatGptWebInputWithinLimits(
+    111_192,
+    103_001,
+    "gpt-5.6-sol",
+    "medium",
+    pro,
+    1_045_001,
+    "native-paste-attachment",
+  )).not.toThrow();
+  expect(() => assertChatGptWebInputWithinLimits(
+    111_193,
+    103_001,
+    "gpt-5.6-sol",
+    "medium",
+    pro,
+    1_045_001,
+    "native-paste-attachment",
+  )).toThrow("111,193-token context window");
 });
 
 test("browser diagnostics redact context envelopes and capability values", () => {
