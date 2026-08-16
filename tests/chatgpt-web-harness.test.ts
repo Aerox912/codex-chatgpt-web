@@ -954,7 +954,7 @@ describe("ChatGPT outer-native harness v4", () => {
     expect(serialized).toContain("current request");
   });
 
-  test("keeps a large context inline and uploads only its referenced images", () => {
+  test("keeps a large compiled context intact for native browser transport", () => {
     const imageUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAE0lEQVR4nGP4z8DwHwwZGP6DAQBJyAn3FGMynQAAAABJRU5ErkJggg==";
     const request = parsed();
     request.context.systemPrompt = ["d".repeat(70_000)];
