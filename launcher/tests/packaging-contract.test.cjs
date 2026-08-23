@@ -101,16 +101,18 @@ test("CI validates native launcher packages without installing the Windows artif
   assert.match(ci, /runner\.os != 'Windows'[\s\S]*bun run app:smoke/);
   assert.match(ci, /runner\.os == 'Windows'[\s\S]*inspect:package:win/);
   assert.match(ci, /prepare-windows-baseline-bun\.ps1 -Version 1\.3\.14/);
-  for (const runner of ["macos-15", "macos-15-intel", "ubuntu-latest", "windows-latest"]) {
+  for (const runner of ["ubuntu-latest", "windows-latest"]) {
     assert.match(release, new RegExp(runner));
+  }
+  for (const runner of ["macos-15", "macos-15-intel"]) {
+    assert.doesNotMatch(release, new RegExp(runner));
   }
   assert.match(release, /launcher\/build\/runtime/);
   assert.match(release, /bun run app:smoke/);
   assert.match(release, /runner\.os != 'Windows'[\s\S]*bun run app:smoke/);
   assert.match(release, /runner\.os == 'Windows'[\s\S]*inspect:package:win/);
   assert.match(release, /prepare-fork-bun-runtime\.ps1/);
-  assert.match(release, /codesign --verify --deep --strict --verbose=2/);
-  assert.match(release, /Codex Web GPT\.app/);
+  assert.doesNotMatch(release, /codesign/);
   assert.doesNotMatch(release, /gh release create[\s\S]*?--draft/);
   assert.match(inspector, /getPath7za/);
   assert.match(inspector, /asar\.extractFile/);
