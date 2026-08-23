@@ -100,7 +100,7 @@ test("CI validates native launcher packages without installing the Windows artif
   assert.match(ci, /bun run app:smoke/);
   assert.match(ci, /runner\.os != 'Windows'[\s\S]*bun run app:smoke/);
   assert.match(ci, /runner\.os == 'Windows'[\s\S]*inspect:package:win/);
-  assert.match(ci, /prepare-windows-baseline-bun\.ps1 -Version 1\.3\.14/);
+  assert.match(ci, /prepare-fork-bun-runtime\.ps1/);
   for (const runner of ["ubuntu-latest", "windows-latest"]) {
     assert.match(release, new RegExp(runner));
   }
