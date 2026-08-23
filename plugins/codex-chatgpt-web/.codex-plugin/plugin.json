@@ -1,6 +1,6 @@
 {
   "name": "codex-chatgpt-web",
-  "version": "2.1.10-patch.1",
+  "version": "2.1.11-patch.4",
   "description": "Operate an explicitly installed Aerox912 Codex ChatGPT Web bridge without bundling or installing its launcher.",
   "author": {
     "name": "Aerox912",
