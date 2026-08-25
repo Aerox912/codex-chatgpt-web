@@ -41,4 +41,11 @@ if (releaseWorkflow.split(`bun-version: ${bunVersion}`).length - 1 !== 2) {
 }
 const launcherVersion = (JSON.parse(readFileSync(resolve(root, "launcher/package.json"), "utf8")) as { version?: string }).version;
 if (launcherVersion !== packageVersion) throw new Error(`launcher/package.json is not synchronized to ${packageVersion}`);
+const pluginVersion = (JSON.parse(readFileSync(
+  resolve(root, "plugins/codex-chatgpt-web/.codex-plugin/plugin.json"),
+  "utf8",
+)) as { version?: string }).version;
+if (pluginVersion !== packageVersion) {
+  throw new Error(`plugins/codex-chatgpt-web/.codex-plugin/plugin.json is not synchronized to ${packageVersion}`);
+}
 process.stdout.write(`VERSION_SYNC_OK ${packageVersion} bun@${bunVersion}\n`);

@@ -9,5 +9,5 @@ The Windows launcher embeds a Bun development runtime built from
 - Windows x64 executable SHA-256: `d9f1d90b24894040749cbb678c171fec9b512f496c4c0a4d67c7180d3e565a97`
 
 The Bun and linked-library licensing notice is distributed alongside this file
-as `Bun-1.3.14.md`. The notice remains applicable to this pinned development
+as `Bun-1.4.0.md`. The notice remains applicable to this pinned development
 revision.

@@ -137,6 +137,26 @@ describe("fixed ChatGPT Web model routes", () => {
     });
   });
 
+  test("triples Sol context and compaction limits only when Bigger Context is enabled", () => {
+    expect(resolveChatGptWebContextLimits(CHATGPT_WEB_BACKEND_MODEL, "max", {
+      ...pro,
+      experimentalBiggerContext: true,
+    })).toEqual({
+      contextWindow: 336_579,
+      effectiveContextWindowPercent: 85,
+      autoCompactTokenLimit: 285_000,
+    });
+    expect(resolveChatGptWebContextLimits(CHATGPT_WEB_LUNA_BACKEND_MODEL, "low", {
+      solAvailable: false,
+      proAvailable: false,
+      experimentalBiggerContext: true,
+    })).toEqual({
+      contextWindow: 1_050_000,
+      effectiveContextWindowPercent: 100,
+      autoCompactTokenLimit: 1_050_000,
+    });
+  });
+
   test("binds the selected model authoritatively and ignores a conflicting request effort", () => {
     const request = parsed("chatgpt-web/high", "low");
     const rawSnapshot = structuredClone(request._rawBody);
@@ -156,6 +176,19 @@ describe("fixed ChatGPT Web model routes", () => {
     expect(request.options.reasoning).toBe("max");
     expect(() => routeChatGptWebRequest(parsed("chatgpt-web/not-enabled"), config))
       .toThrow("model is not enabled");
+  });
+
+  test("keeps normal Pro turns on Pro and routes only Pro compaction through Extra High", () => {
+    const config = defaultConfig("full");
+    config.proAvailable = true;
+    const normal = parsed("chatgpt-web/pro", "low");
+    const compact = parsed("chatgpt-web/pro", "low");
+    compact._compactionRequest = true;
+
+    expect(routeChatGptWebRequest(normal, config).slug).toBe("chatgpt-web/pro");
+    expect(normal.options.reasoning).toBe("max");
+    expect(routeChatGptWebRequest(compact, config).slug).toBe("chatgpt-web/pro");
+    expect(compact.options.reasoning).toBe("xhigh");
   });
 
   test("binds the Luna route to Luna without a selectable effort", () => {

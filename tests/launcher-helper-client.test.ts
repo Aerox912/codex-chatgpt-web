@@ -44,17 +44,20 @@ test("Bun daemon streams a prepared browser turn through the persistent Node hel
       send({ type: "result", id: message.id, text: "done" });
     });
   `, { mode: 0o700 });
+  const descriptorHelper = join(root, "descriptor-helper.cjs");
+  writeFileSync(descriptorHelper, "process.exit(99);\n", { mode: 0o700 });
   const descriptorPath = join(root, "launcher.json");
   writeFileSync(descriptorPath, `${JSON.stringify({
-    version: 1,
+    version: 2,
     kind: LAUNCHER_BROWSER_HOST_KIND,
+    profile: "production",
     pid: process.pid,
     endpoint: "http://127.0.0.1:39001",
     control: {
       endpoint: "http://127.0.0.1:39002",
       token: "launcher-control-token-0123456789abcdefghijklmnop",
     },
-    helper: { executable: process.execPath, script: helper },
+    helper: { executable: process.execPath, script: descriptorHelper },
     partition: "persist:codex-web-gpt-chatgpt",
     idleUrl: "about:blank#codex-web-gpt-browser-host",
     surfaceId: "launcher_surface_id_0123456789AB",
@@ -64,6 +67,7 @@ test("Bun daemon streams a prepared browser turn through the persistent Node hel
     appName: "Codex Native",
     browserHost: "launcher",
     browserHostDescriptorPath: descriptorPath,
+    browserHelperScriptPath: helper,
     storageStatePath: join(root, "unused-state.json"),
     chromeExecutablePath: join(root, "unused-chrome"),
     turnTimeoutMs: 60_000,
@@ -108,6 +112,64 @@ test("Bun daemon streams a prepared browser turn through the persistent Node hel
   } finally {
     await client.close();
   }
+});
+
+test("launcher helper protocol preserves multipart context and the compaction flag", async () => {
+  let sent: Record<string, unknown> | undefined;
+  const client = new LauncherBrowserHelperClient({
+    appName: "Codex Native2 DEV",
+    browserHost: "launcher",
+    browserHostDescriptorPath: "/durable/launcher.json",
+    storageStatePath: "/durable/unused-state.json",
+    chromeExecutablePath: "/durable/unused-chrome",
+    turnTimeoutMs: 60_000,
+    headed: true,
+    autoApproveToolCalls: false,
+  });
+  const internal = client as unknown as {
+    pending: Map<string, { resolve(value: string): void }>;
+    ensureChild(): Promise<void>;
+    send(message: Record<string, unknown>): Promise<void>;
+    finish(id: string): void;
+  };
+  internal.ensureChild = async () => {};
+  internal.send = async message => {
+    sent = message;
+    if (message.type !== "run" || typeof message.id !== "string") return;
+    queueMicrotask(() => {
+      const pending = internal.pending.get(message.id as string);
+      internal.finish(message.id as string);
+      pending?.resolve("done");
+    });
+  };
+
+  await expect(client.run({
+    traceId: "multipart-123",
+    modelId: "gpt-5.6-sol",
+    reasoning: "high",
+    capabilities: { localToolsEnabled: false, solAvailable: true, proAvailable: true },
+    compaction: true,
+    prepare: async () => ({
+      text: "commit",
+      images: [],
+      multipart: { parts: ["{\"part\":1}", "{\"part\":2}", "{\"part\":3}"], commit: "commit" },
+      trimmedCompactionMessages: 4,
+      release() {},
+    }),
+    onTextDelta() {},
+  })).resolves.toBe("done");
+
+  expect(sent).toMatchObject({
+    type: "run",
+    turn: {
+      compaction: true,
+      prepared: {
+        text: "commit",
+        multipart: { parts: ["{\"part\":1}", "{\"part\":2}", "{\"part\":3}"], commit: "commit" },
+        trimmedCompactionMessages: 4,
+      },
+    },
+  });
 });
 
 test("an abort dispatched during run submission cannot overtake the run frame", async () => {

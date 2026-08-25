@@ -12,7 +12,6 @@
 <p align="center">
   <a href="https://github.com/Aerox912/codex-chatgpt-web/actions/workflows/ci.yml"><img src="https://github.com/Aerox912/codex-chatgpt-web/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license"></a>
-  <img src="https://img.shields.io/badge/macOS-arm64%20%7C%20x64-black?logo=apple" alt="macOS arm64 and x64">
   <img src="https://img.shields.io/badge/Windows-x64-0078d4?logo=windows11" alt="Windows x64">
   <img src="https://img.shields.io/badge/Linux-x64-fcc624?logo=linux&logoColor=black" alt="Linux x64">
   <img src="https://img.shields.io/badge/Free_AI-no_API_fees-10a37f" alt="Free AI with no API fees">
@@ -44,7 +43,7 @@ Codex 任务的工具。
 
 ## 亮点
 
-- **精致的跨平台启动器。** 一条命令即可安装原生 macOS、Windows 或 Linux 应用。登录流程、设置、
+- **精致的桌面启动器。** 一条命令即可安装原生 Windows 或 Linux 应用。登录流程、设置、
   冒烟测试、MCP 指南、运行状态和本地日志都集中在同一处；内置浏览器还能让你实时看到每个
   ChatGPT 轮次的执行过程。最多可同时运行五个与 Codex 任务绑定的浏览器标签页；此上限用于避免
   对 ChatGPT 账户产生过多并行流量。
@@ -54,16 +53,16 @@ Codex 任务的工具。
   全新的 ChatGPT 临时聊天开始，并接收当前编译后的上下文。达到实测浏览器上限时会触发压缩，
   Luna 则通过自适应滚动检查点携带已完成的状态。浏览器聊天不会在任务之间复用，也不会加入普通
   ChatGPT 历史记录。
-- **通过 MCP 使用完整 Codex harness。** 在完整模式下，Instant 到 Extra High 可以通过 MCP
-  使用当前 Codex 任务的文件系统、shell、图片、审批以及已配置的工具和应用。调用及其真实结果
-  会留在同一个浏览器响应中，不会被模拟成文本。
-- **Pro 仍然实用。** Pro 是唯一的例外：ChatGPT 当前的 Pro 模式不会暴露此桥接程序所需的自定义
-  MCP 连接器。它的原生能力（包括网页搜索和研究）仍然可用。你可以先用 Instant 到 Extra High
-  收集本地工作区上下文，再切换到 Pro；Pro 会收到当前编译后的 Codex 上下文，用于更深入的分析，
-  同时仍受实测浏览器上限和压缩规则约束。
-- **故障时明确失败，并经过人工测试。** 模型选择、超长内联上下文、图片、流式输出、可见追踪、
-  上下文压缩、原生工具轮次、取消操作和 Pro 均已在 macOS 和 Windows 11 上完成端到端测试。
-  UI 变化或能力缺失会产生明确错误，而不是静默回退。
+- **通过 MCP 使用完整 Codex harness。** 在完整模式下，登录账户可用的每一个 effort——Luna、
+  Instant、Medium、High、Extra High 和 Pro——都会通过同一个与当前回合绑定的 MCP 能力，使用
+  Codex 任务的文件系统、shell、图片、审批以及已配置的工具和应用。调用及其真实结果会留在
+  同一个浏览器响应中，不会被模拟成文本。
+- **Pro 没有例外。** Pro 与其他所有 effort 遵循完全相同的 MCP、上下文、图片、追踪、工具轮次、
+  浏览器上限和压缩契约。不存在按 effort 区分的 MCP 限制。仅浏览器模式下，所有路由都保持只读。
+- **故障时明确失败，并设有明确的发布门槛。** UI 变化或能力缺失会产生明确错误，而不是静默
+  回退。依赖真实账户的模型选择、超长上下文、图片、流式输出、上下文压缩、原生工具轮次、
+  取消操作和 Pro 必须按[发布验证清单](docs/release-validation.md)逐个候选版本验证，不能用打包
+  smoke 代替。
 
 临时聊天是 ChatGPT 的隐私模式，并不代表匿名或仅在本地推理：提示仍会由 OpenAI 处理，并受账户
 设置及 OpenAI [临时聊天政策](https://help.openai.com/en/articles/8914046-temporary-chat-faq)
@@ -74,7 +73,7 @@ Codex 任务的工具。
 安装或更新桌面启动器。若要更新或修复现有安装，请先退出启动器，然后再次运行同一条命令；它会
 替换应用程序和内置运行时，同时保留 ChatGPT 配置文件和启动器配置。
 
-**macOS 或 Linux**
+**Linux**
 
 ```bash
 curl -fsSL https://github.com/Aerox912/codex-chatgpt-web/releases/latest/download/install-launcher.sh | sh
@@ -108,18 +107,18 @@ cd codex-chatgpt-web && \
 bun run app
 ```
 
-源码方式需要 Bun 1.3.14。该命令会安装锁定版本的依赖并打开应用。
+源码方式需要 Bun 1.4.0。该命令会安装锁定版本的依赖并打开应用。
 
 ## 模式
 
 | 模式 | 模型 | 本地 Codex 工具 | 额外设置 |
 | --- | --- | --- | --- |
 | **仅浏览器** | Free/Go：Luna；Plus：Instant–High；Pro：增加 Extra High 和 Pro | 不可用；Codex 会显示警告 | 无 |
-| **完整 harness** | Free/Go：Luna；Plus：Instant–High；Pro：增加 Extra High 和 Pro | 非 Pro 模型：连接器可用时支持；Pro：只读 | OpenAI 隧道 + ChatGPT 连接器 |
+| **完整 harness** | Free/Go：Luna；Plus：Instant–High；Pro：增加 Extra High 和 Pro | 每个列出的 effort 均支持，包括 Pro | OpenAI 隧道 + ChatGPT 连接器 |
 
 模型选择器中的每一项都对应一个固定的 ChatGPT 模式。Codex 仍会显示内置的 Effort 和 Speed
-选项，但更改它们不会在后台静默切换所选的浏览器模型。Pro 会收到 Codex 当前编译后的上下文，
-但 ChatGPT Pro 无法主动发起本地 MCP/工具调用。
+选项，但更改它们不会在后台静默切换所选的浏览器模型。在完整模式下，每一个可用 effort 都会
+获得同一个与当前回合绑定的 MCP 能力；Pro 没有单独限制，也没有缩减后的工具契约。
 
 ## 完整 harness
 
@@ -166,10 +165,10 @@ bun run app
   [#76](https://github.com/miuuyy/codex-chatgpt-web/issues/76) 中。
 - 浏览器状态是敏感的登录凭据，loopback 监听器也可被同一本地用户运行的进程访问。切勿共享
   启动器 profile，并仅在可信工作站上使用。
-- 发布包目前支持 macOS 13+（arm64/x64）、Windows x64 和 Linux x64。浏览器流程已在 macOS
-  和 Windows 11 上完成手动端到端测试；核心运行时、测试和原生打包会在 CI 中对三种操作系统
-  进行检查。
-- 在为发布配置平台签名证书之前，macOS Gatekeeper 或 Windows SmartScreen 可能会显示未知发布者
+- 此分支发布 Windows x64 和 Linux x64 安装包。核心运行时、测试和原生打包仍会在 CI 中对
+  macOS、Windows 和 Linux 进行检查；依赖账户的浏览器与 MCP 流程必须另行完成
+  [发布验证](docs/release-validation.md)，打包 smoke 不视为端到端证明。
+- 在为 Windows 发布配置签名证书之前，SmartScreen 可能会显示未知发布者
   警告。一键安装脚本会在安装前验证发布的 SHA-256 清单。
 
 启用完整模式前，请阅读完整的[架构说明](docs/architecture.md)和

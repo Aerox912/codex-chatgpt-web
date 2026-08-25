@@ -24,15 +24,18 @@ test("launcher publishes native packages for all supported desktop operating sys
   assert.deepEqual(manifest.build.linux.target, ["AppImage"]);
   assert.ok(manifest.build.files.includes("assets/icon.png"));
   assert.ok(fs.existsSync(path.join(launcherRoot, "assets", "icon.ico")));
+  assert.equal(manifest.build.nsis.oneClick, false);
   assert.equal(manifest.build.nsis.perMachine, false);
   assert.equal(manifest.build.nsis.allowElevation, false);
-  assert.equal(manifest.build.nsis.runAfterFinish, false);
+  assert.equal(manifest.build.nsis.runAfterFinish, true);
+  assert.match(manifest.build.nsis.guid, /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/);
 });
 
 test("release installers resolve checksummed native launcher assets", () => {
   const shellInstaller = fs.readFileSync(path.join(repositoryRoot, "scripts", "install-launcher.sh"), "utf8");
   const windowsInstaller = fs.readFileSync(path.join(repositoryRoot, "scripts", "install-launcher.ps1"), "utf8");
   const runtimeInstaller = fs.readFileSync(path.join(repositoryRoot, "scripts", "install.sh"), "utf8");
+  const devProfile = fs.readFileSync(path.join(repositoryRoot, "src", "dev-chat", "profile.ts"), "utf8");
   const packager = fs.readFileSync(path.join(launcherRoot, "scripts", "package.cjs"), "utf8");
   for (const installer of [shellInstaller, windowsInstaller]) {
     assert.match(installer, /checksums\.txt/);
@@ -44,7 +47,8 @@ test("release installers resolve checksummed native launcher assets", () => {
   assert.match(shellInstaller, /codex-web-gpt\.desktop/);
   assert.match(shellInstaller, /--appimage-extract/);
   assert.match(packager, /-linux-x86_64\(\?=\\\.\).*?-linux-x64/);
-  assert.match(packager, /process\.execPath/);
+  assert.match(packager, /const executable = "node"/);
+  assert.doesNotMatch(packager, /process\.execPath/);
   assert.match(packager, /electron-builder\/out\/cli\/cli\.js/);
   assert.match(packager, /target === "--mac" && !env\.CSC_LINK && !env\.CSC_NAME/);
   assert.match(packager, /--config\.mac\.identity=-/);
@@ -63,11 +67,14 @@ test("release installers resolve checksummed native launcher assets", () => {
     assert.match(installer, /Aerox912\/codex-chatgpt-web/);
     assert.doesNotMatch(installer, /miuuyy\/codex-chatgpt-web/);
   }
-  const expectedWindowsExecutable = `Programs\\${manifest.name}\\${manifest.build.productName}.exe`;
-  assert.ok(
-    windowsInstaller.includes(expectedWindowsExecutable),
-    `the PowerShell installer must launch the NSIS executable at ${expectedWindowsExecutable}`,
-  );
+  assert.ok(windowsInstaller.includes(`HKCU:\\Software\\${manifest.build.nsis.guid}`));
+  assert.ok(devProfile.includes(`WINDOWS_LAUNCHER_GUID = "${manifest.build.nsis.guid}"`));
+  assert.match(windowsInstaller, /Get-ItemPropertyValue[\s\S]*InstallLocation/);
+  assert.ok(windowsInstaller.includes(`Join-Path $InstallLocation "${manifest.build.productName}.exe"`));
+  assert.match(windowsInstaller, /-ArgumentList "\/S", "\/currentuser"/);
+  const packageSmoke = fs.readFileSync(path.join(launcherRoot, "scripts", "smoke-package.cjs"), "utf8");
+  assert.match(packageSmoke, /run\(installer, \["\/S", "\/currentuser"\]/);
+  assert.match(packageSmoke, /reg\.exe[\s\S]*InstallLocation/);
 });
 
 test("packaged launcher owns a detached checksummed updater for every release platform", () => {
@@ -107,6 +114,7 @@ test("CI validates native launcher packages without installing the Windows artif
   for (const runner of ["macos-15", "macos-15-intel"]) {
     assert.doesNotMatch(release, new RegExp(runner));
   }
+  assert.doesNotMatch(release, /cp scripts\/install\.sh/);
   assert.match(release, /launcher\/build\/runtime/);
   assert.match(release, /bun run app:smoke/);
   assert.match(release, /runner\.os != 'Windows'[\s\S]*bun run app:smoke/);
@@ -119,6 +127,16 @@ test("CI validates native launcher packages without installing the Windows artif
   assert.match(inspector, /run\(runtimeBun, \["--revision"\]\)/);
   assert.doesNotMatch(inspector, /run\(installer/);
   assert.doesNotMatch(inspector, /--launcher-smoke-test|"\/S"/);
+});
+
+test("macOS package smoke unregisters its staged app from LaunchServices", () => {
+  const smoke = fs.readFileSync(path.join(launcherRoot, "scripts", "smoke-package.cjs"), "utf8");
+  assert.match(smoke, /Frameworks\/LaunchServices\.framework\/Support\/lsregister/);
+  assert.match(smoke, /\["-u", macAppBundle\]/);
+  assert.ok(
+    smoke.indexOf('["-u", macAppBundle]') < smoke.indexOf("fs.rmSync(scratch"),
+    "the staged app must be unregistered before its bundle is deleted",
+  );
 });
 
 test("release publishes the repository demo as a checksummed versioned asset", () => {
