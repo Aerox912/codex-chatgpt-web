@@ -15,7 +15,7 @@ const {
   shell,
   Tray,
 } = require("electron");
-const { BrowserHost } = require("./browser-host.cjs");
+const { BrowserHost, navigationErrorForLog } = require("./browser-host.cjs");
 const { BrowserControlServer } = require("./control-server.cjs");
 const { getAutostart, setAutostart } = require("./autostart.cjs");
 const {
@@ -183,7 +183,6 @@ async function restoreCodexRouteAfterRuntimeFailure({ logger, stateStore }) {
     const route = await runtimeHost.restoreBridgeRoute("runtime-start-fail-safe");
     if (!route.installed || route.active) return { restored: false };
     const state = stateStore.update({
-      bridgeEnabled: false,
       codexCatalogVerified: false,
       codexRestartRequired: true,
     });
@@ -535,18 +534,6 @@ function registerIpc({ logger, stateStore }) {
     if (IS_DEV_PROFILE) throw new Error("DEV chat turns are owned by the repository CLI process");
     return runtimeHost.cancelActiveTurns();
   });
-  handle("launcher:bridge-enabled", async (_event, enabled) => {
-    if (IS_DEV_PROFILE) throw new Error("DEV profile has no Codex bridge route");
-    const result = await runtimeHost.setBridgeEnabled(enabled === true);
-    const state = stateStore.update({
-      bridgeEnabled: result.active,
-      codexRestartRequired: true,
-    });
-    send("launcher:state-changed", state);
-    if (result.active) startCatalogVerificationMonitor({ logger, stateStore });
-    else stopCatalogVerificationMonitor();
-    return state;
-  });
   handle("launcher:uninstall-integration", async () => {
     if (IS_DEV_PROFILE) throw new Error("DEV profile has no Codex integration to remove");
     const language = stateStore.read().language;
@@ -573,7 +560,6 @@ function registerIpc({ logger, stateStore }) {
     }
     const state = stateStore.update({
       coreSetupComplete: false,
-      bridgeEnabled: false,
       codexCatalogVerified: false,
       mcpSetupComplete: false,
       mcpRuntimeInstalled: false,
@@ -604,7 +590,6 @@ function registerIpc({ logger, stateStore }) {
     }
     const result = IS_DEV_PROFILE ? await runtimeHost.setupDevCore() : await runtimeHost.setupCore();
     stateStore.update({
-      bridgeEnabled: IS_DEV_PROFILE ? false : true,
       coreSetupComplete: true,
       codexCatalogVerified: IS_DEV_PROFILE ? true : false,
       codexRestartRequired: IS_DEV_PROFILE ? false : true,
@@ -879,10 +864,11 @@ async function start() {
   const trayAvailable = createTray(logger);
   if (startHidden && !trayAvailable) mainWindow.once("ready-to-show", () => showMainWindow());
   const launcherSmokeTest = process.argv.includes("--launcher-smoke-test");
+  let startupAuthenticationRefresh = Promise.resolve();
   if (!launcherSmokeTest) {
-    void browserHost.refreshAuthentication().catch((error) => {
+    startupAuthenticationRefresh = browserHost.refreshAuthentication().catch((error) => {
       logger.warn("browser.session_refresh_failed", {
-        message: error instanceof Error ? error.message : String(error),
+        ...navigationErrorForLog(error),
       });
     });
   }
@@ -936,7 +922,6 @@ async function start() {
       publishOperation({ name: "dev-profile", status: "failed", message });
     }
     const state = stateStore.update({
-      bridgeEnabled: false,
       coreSetupComplete: Boolean(config),
       codexCatalogVerified: Boolean(config),
       mcpRuntimeInstalled: config?.mode === "full",
@@ -953,7 +938,7 @@ async function start() {
       userData: launcherUserData,
     });
     if (config?.mode === "full") {
-      void runtimeSupervisor.startIfConfigured().catch((error) => {
+      void startupAuthenticationRefresh.then(() => runtimeSupervisor.startIfConfigured()).catch((error) => {
         const message = error instanceof Error ? error.message : String(error);
         logger.error("dev_profile.runtime_start_failed", { message });
         const failed = stateStore.update({ mcpSetupComplete: false });
@@ -961,10 +946,10 @@ async function start() {
       });
     }
   } else void (async () => {
+    await startupAuthenticationRefresh;
     const upgrade = await runtimeHost.upgradeManagedRuntime();
     if (upgrade.updated) {
       const state = stateStore.update({
-        bridgeEnabled: upgrade.bridgeEnabled,
         coreSetupComplete: true,
         codexCatalogVerified: false,
         codexRestartRequired: true,
@@ -984,7 +969,6 @@ async function start() {
         fromVersion: upgrade.fromVersion,
         toVersion: upgrade.toVersion,
         mode: upgrade.mode,
-        bridgeEnabled: upgrade.bridgeEnabled,
         connectorMigrated: upgrade.connectorMigrated,
       });
     }
@@ -996,33 +980,22 @@ async function start() {
         send("launcher:state-changed", state);
       }
     }
-    try {
-      const route = await runtimeHost.bridgeStatus();
-      if (route.installed) {
-        const current = stateStore.read();
-        if (current.bridgeEnabled !== route.active) {
-          const state = stateStore.update({ bridgeEnabled: route.active });
-          send("launcher:state-changed", state);
-        }
-        if (!route.active) return { status: "bridge-disabled" };
-      }
-    } catch (error) {
-      logger.warn("bridge.route_status_failed", {
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
-    return runtimeSupervisor.startIfConfigured();
+    const runtime = await runtimeSupervisor.startIfConfigured();
+    if (runtime.status !== "ready") return runtime;
+    const route = await runtimeHost.connectBridgeRoute();
+    return { ...runtime, bridgeRouteChanged: route.changed === true };
   })().then(async (runtime) => {
-    if (runtime.status === "bridge-disabled") {
-      stopCatalogVerificationMonitor();
-      return;
-    }
     if (runtime.status === "ready") {
       const config = runtimeSupervisor.readConfig();
       const current = stateStore.read();
       const patch = {
+        coreSetupComplete: true,
         mcpRuntimeInstalled: config.mode === "full",
         experimentalBiggerContext: config.experimentalBiggerContext === true,
+        ...(runtime.bridgeRouteChanged ? {
+          codexCatalogVerified: false,
+          codexRestartRequired: true,
+        } : {}),
         ...(config.mode === "browser-only" ? {
           mcpSetupComplete: false,
           mcpGuideStep: 0,
