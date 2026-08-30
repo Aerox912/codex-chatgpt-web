@@ -17,6 +17,13 @@ test("the public launcher command uses the Electron bootstrap", () => {
   assert.equal(repositoryManifest.homepage, "https://github.com/Aerox912/codex-chatgpt-web#readme");
 });
 
+test("the full verification gate audits launcher dependencies", () => {
+  const verify = fs.readFileSync(path.join(repositoryRoot, "scripts", "verify.ts"), "utf8");
+  assert.equal(manifest.scripts.audit, "bun audit");
+  assert.equal(repositoryManifest.scripts["launcher:audit"], "bun run --cwd launcher audit");
+  assert.match(verify, /await run\(\["run", "launcher:audit"\]\);/);
+});
+
 test("launcher publishes native packages for all supported desktop operating systems", () => {
   assert.equal(manifest.build.appId, "dev.codexwebgpt.launcher");
   assert.equal(manifest.build.artifactName, "codex-web-gpt-${version}-${os}-${arch}.${ext}");
@@ -74,6 +81,17 @@ test("release installers resolve checksummed native launcher assets", () => {
     assert.match(installer, /Aerox912\/codex-chatgpt-web/);
     assert.doesNotMatch(installer, /miuuyy\/codex-chatgpt-web/);
   }
+  assert.match(windowsInstaller, /function Test-IsFullyQualifiedWindowsPath/);
+  assert.match(windowsInstaller, /Test-IsFullyQualifiedWindowsPath \$InstallLocation/);
+  assert.doesNotMatch(windowsInstaller, /IsPathFullyQualified/);
+  const windowsPathPattern = windowsInstaller.match(/return \$Path -match '([^']+)'/)?.[1];
+  assert.ok(windowsPathPattern, "the Windows installer must expose its absolute-path contract");
+  const fullyQualifiedWindowsPath = new RegExp(windowsPathPattern);
+  assert.equal(fullyQualifiedWindowsPath.test("C:\\Users\\tester\\Codex Web GPT"), true);
+  assert.equal(fullyQualifiedWindowsPath.test("\\\\server\\share\\Codex Web GPT"), true);
+  assert.equal(fullyQualifiedWindowsPath.test("C:Codex Web GPT"), false);
+  assert.equal(fullyQualifiedWindowsPath.test("\\Codex Web GPT"), false);
+  assert.equal(fullyQualifiedWindowsPath.test("Codex Web GPT"), false);
   assert.ok(windowsInstaller.includes(`HKCU:\\Software\\${manifest.build.nsis.guid}`));
   assert.ok(devProfile.includes(`WINDOWS_LAUNCHER_GUID = "${manifest.build.nsis.guid}"`));
   assert.match(windowsInstaller, /Get-ItemPropertyValue[\s\S]*InstallLocation/);

@@ -2,16 +2,19 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import type { Page } from "playwright-core";
 import {
+  CHATGPT_BROWSER_OBSERVATION_PROBE_TIMEOUT_MS,
   CHATGPT_COMPOSER_DOCUMENT_END_KEY,
   CHATGPT_NATIVE_PASTE_ATTACHMENT_INSTRUCTION,
   CHATGPT_NATIVE_PASTE_ATTACHMENT_THRESHOLD_CHARS,
   CHATGPT_STOPPED_THINKING_GRACE_MS,
   CHATGPT_TERMINAL_ERROR_RETRY_DELAYS_MS,
+  ChatGptBrowserObservationTimeoutError,
   ChatGptBrowserWorker,
   ChatGptPromptAttachmentIntegrityError,
   ChatGptStoppedThinkingTracker,
   ChatGptTurnDomHealthTracker,
   ChatGptVisibleTraceTracker,
+  MAX_CHATGPT_BROWSER_PAGE_REBINDS,
   MAX_CHATGPT_BROWSER_TABS,
   MAX_CHATGPT_CONNECTOR_TRIGGER_ATTEMPTS,
   assertChatGptWebInputWithinLimits,
@@ -33,6 +36,7 @@ import {
   throwIfChatGptRateLimitDialog,
   throwIfChatGptSessionFailureAlert,
   throwIfChatGptTerminalErrorAlert,
+  withChatGptBrowserObservationTimeout,
   chatGptConnectorAttachmentMode,
   chatGptEffortSelectionRequired,
   chatGptReboundTurnIdentity,
@@ -271,6 +275,25 @@ test("launcher page acquisition proves a nonzero operational viewport before DOM
   expect(viewport).toBeGreaterThan(connect);
   expect(acquired).toBeGreaterThan(viewport);
   expect(workerSource).toContain("innerWidth >= width && innerHeight >= height");
+});
+
+test("a stalled post-submit DOM probe is bounded before same-page launcher recovery", async () => {
+  expect(CHATGPT_BROWSER_OBSERVATION_PROBE_TIMEOUT_MS).toBe(5_000);
+  expect(MAX_CHATGPT_BROWSER_PAGE_REBINDS).toBe(2);
+  await expect(withChatGptBrowserObservationTimeout(
+    new Promise<never>(() => {}),
+    5,
+  )).rejects.toBeInstanceOf(ChatGptBrowserObservationTimeoutError);
+
+  const workerSource = readFileSync(new URL("../src/adapters/chatgpt-web/browser-worker.ts", import.meta.url), "utf8");
+  const runBrowserTurn = workerSource.slice(workerSource.indexOf("  private async runBrowserTurn("));
+  const submissionAccepted = runBrowserTurn.indexOf("submission accepted evidence=");
+  const recovery = runBrowserTurn.indexOf("await rebindLauncherPage(", submissionAccepted);
+  const duplicateSend = runBrowserTurn.indexOf("sendAttachedPrompt(", recovery);
+  expect(recovery).toBeGreaterThan(submissionAccepted);
+  expect(duplicateSend).toBe(-1);
+  expect(runBrowserTurn).toContain("if (!launcherSurfaceId || !this.config.browserHostDescriptorPath) throw cause");
+  expect(runBrowserTurn.slice(recovery)).toContain("responseTurn.identity");
 });
 
 test("closing the launcher page is an immediate terminal turn error", async () => {
@@ -768,7 +791,7 @@ test("connector selection re-resolves the active composer after ChatGPT replaces
     ["fill", ""],
     ["fill", ""],
     ["focus"],
-    ["pressSequentially", "@c"],
+    ["pressSequentially", "@codex"],
     ["waitForResult"],
     ["press"],
     ["waitForSelectedConnector"],
@@ -847,7 +870,7 @@ test("connector selection retriggers the complete mention after a fresh-page hyd
     fill: async () => { calls.push("clear"); },
     focus: async () => { calls.push("focus"); },
     pressSequentially: async (value: string) => {
-      expect(value).toBe("@c");
+      expect(value).toBe("@codex");
       calls.push("type");
     },
   };
@@ -1122,7 +1145,7 @@ test("tool-capable prompts use the shared Playwright connector selection before 
     ["fill", ""],
     ["fill", ""],
     ["focus"],
-    ["type", "@c"],
+    ["type", "@codex"],
     ["connectorMenu"],
     ["selectConnector"],
     ["selectedConnector"],
@@ -2114,6 +2137,20 @@ test("completed-turn evidence flushes a short-lived reasoning label immediately"
   ]);
 });
 
+test("a structurally completed trailing Pro commentary does not wait for another parsed trace block", () => {
+  const tracker = new ChatGptVisibleTraceTracker(100);
+  const commentary = [{
+    kind: "commentary",
+    text: "The tracked worktree is clean; I’m preserving the untracked user artifacts.",
+    complete: true,
+  }] as const;
+  expect(tracker.observe([...commentary], false, 1_000)).toEqual([]);
+  expect(tracker.observe([...commentary], false, 1_100)).toEqual([{
+    kind: "commentary",
+    text: "The tracked worktree is clean; I’m preserving the untracked user artifacts.",
+  }]);
+});
+
 test("visible DOM trace emits one complete commentary paragraph before the next action", () => {
   const tracker = new ChatGptVisibleTraceTracker(100);
   const initial = [
@@ -2151,15 +2188,23 @@ test("response DOM separates streaming commentary from the final Markdown answer
   expect(workerSource).toContain("!commentaryRoots.includes(candidate)");
   expect(workerSource).toContain('fullHtml: renderedRoots.map(candidate => candidate.innerHTML).join("")');
   expect(workerSource).toContain("const flattenedMarkdownSegments:");
-  expect(workerSource).toContain("boundaries therefore are not identity");
+  expect(workerSource).toContain("Root boundaries and visible indices therefore are not identity");
   expect(workerSource).toContain("const blockMarkdownTags = new Set([");
   expect(workerSource).toContain("markdownRoot.childNodes.forEach((node) => {");
   expect(workerSource).toContain("flushInlineRun();");
   expect(workerSource).toContain('tag: "inline"');
   expect(workerSource).not.toContain("const hasDirectText =");
-  expect(workerSource).toContain('key: `${index}:${segment.tag}`');
+  expect(workerSource).toContain("const sourceRange = (candidate: Element)");
+  expect(workerSource).toContain('candidate.getAttribute("data-start")');
+  expect(workerSource).toContain('candidate.getAttribute("data-end")');
+  expect(workerSource).toContain('key: segment.sourceStart !== undefined');
+  expect(workerSource).toContain('`${segment.sourceStart}:${segment.tag}`');
+  expect(workerSource).toContain("sourceStart: Math.min(...ranges.map");
+  expect(workerSource).toContain("sourceEnd: Math.max(...ranges.map");
   expect(workerSource).toContain("streamable: index < segments.length - 1");
   expect(workerSource).toContain("markdownBuffer.observe(snapshot.markdownSegments)");
+  expect(workerSource).toContain("if (completionTracker.update({");
+  expect(workerSource).not.toContain("markdownBuffer.currentSnapshotIsConsistent() && completionTracker.update");
   expect(workerSource).not.toContain("streamCompletedBlocks");
   expect(workerSource).toContain('code: "multipart_protocol_violation"');
   expect(workerSource).not.toContain("multipartFailed");
@@ -2176,8 +2221,10 @@ test("response DOM separates streaming commentary from the final Markdown answer
     + "          ?? candidate",
   );
   expect(workerSource).toContain('candidate.closest<HTMLElement>("[data-item-anchor]")');
+  expect(workerSource).toContain("const hasFollowingRenderedSibling = (candidate: HTMLElement)");
+  expect(workerSource).toContain("itemAnchor?.nextElementSibling");
+  expect(workerSource).toContain("block.complete === true || index < blocks.length - 1");
   expect(workerSource).toContain("const traceByKey = new Map<string, ChatGptVisibleTraceBlock>()");
-  expect(workerSource).toContain('block.kind === "commentary" ? { complete: index < blocks.length - 1 }');
   expect(workerSource).toContain('uiControl: candidate.matches("button")');
   expect(workerSource).toContain("!overlapsRenderedAnswer(semantic)");
   expect(workerSource).toContain("!overlapsRenderedAnswer(container)");

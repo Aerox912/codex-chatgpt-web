@@ -171,27 +171,13 @@ that option clicks **Allow once**, never a permanent grant.
 
 ## Operations
 
-Use **Activity** for structured local logs and **Settings → Run doctor** for end-to-end health
-checks. Use **Settings → Cancel retained browser turn** if a stopped task leaves ChatGPT working,
-and **Settings → Remove Codex integration** before deleting the launcher so the previous Codex
-route is restored.
+Use **Activity** for safe local diagnostics and **Settings → Run doctor** for end-to-end health.
+Settings can also cancel a retained browser turn or remove the Codex integration before uninstall.
+Set `CODEX_CHATGPT_WEB_BROWSER_DIAGNOSTICS=1` only when every browser checkpoint needs a screenshot.
 
-Browser turn diagnostics save bounded JSON state at each checkpoint. Screenshots are captured for
-stalled and failed turns, where the visible UI is needed to diagnose DOM drift without slowing every
-successful step. Set `CODEX_CHATGPT_WEB_BROWSER_DIAGNOSTICS=1` before starting the runtime to also
-capture a screenshot at every checkpoint during an investigation.
-
-Subagent protocol is an explicit installation setting. New installs use **Compatibility V1**: it
-enables `multi_agent`, disables the global `multi_agent_v2` override, and
-restores the user's previous feature lines on disconnect or uninstall. It also raises
-`[agents].max_depth` to at least 2 while active so Web children can spawn Web grandchildren, then
-restores the prior value. This is the universal cross-backend surface: native and Web parents can
-delegate to Web children without opaque V2 payloads, and targeted waits can observe a child that
-completed before the parent began waiting. Web parents expose `wait_agent` as explicit 10-second
-polls so one long wait cannot occupy the connector's MCP channel and block the child's own tools.
-**Native** remains an advanced opt-in that preserves
-Codex's own feature settings and supports plaintext Web-to-Web V2 delegation. Switch deliberately,
-then restart Codex and start a new task because an existing task cannot change protocol in place:
+New installs use **Compatibility V1** for cross-backend subagents. **Native** preserves Codex's own
+feature settings and enables plaintext Web-to-Web V2 delegation. Restart Codex and start a new task
+after changing the protocol:
 
 ```bash
 codex-chatgpt-web subagents status

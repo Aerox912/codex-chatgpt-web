@@ -22,6 +22,7 @@ import { MAX_CHATGPT_WEB_TURN_RETRIES } from "../src/adapters/chatgpt-web/retry-
 import { ChatGptTextFeed, ChatGptTraceFeed, ChatGptTurnSessions, chatGptCompactionSourceExecutionKey, chatGptThreadOwnershipKey, chatGptTurnExecutionKey, chatGptTurnSessions } from "../src/adapters/chatgpt-web/turn-execution";
 import { callTurnBroker, TurnBroker, type BrokerToolResult } from "../src/adapters/chatgpt-web/turn-broker";
 import { ChatGptExternalTurnProgress, chatGptExternalProgressIsLive } from "../src/adapters/chatgpt-web/turn-progress";
+import { CHATGPT_WEB_MCP_INVOCATION_TIMEOUT_MS, chatGptMcpInvocationTimeout } from "../src/adapters/chatgpt-web/mcp-server";
 import { defaultBrokerEndpoint } from "../src/config";
 import { estimateChatGptWebUsage } from "../src/adapters/chatgpt-web/usage";
 import { decodeCompactionSummary, SUMMARY_PREFIX } from "../src/responses/compaction";
@@ -1499,6 +1500,14 @@ describe("ChatGPT outer-native harness v4", () => {
     });
   });
 
+  test("preserves Obsidian wiki links without turning them into LaTeX delimiters", () => {
+    expect(chatGptHtmlToMarkdown(
+      "<p>Sources: [[Goals/финансовые цели]] · [[wiki/entities/me]]</p>",
+    )).toBe("Sources: [[Goals/финансовые цели]] · [[wiki/entities/me]]");
+    expect(chatGptHtmlToMarkdown("<p>Ordinary [brackets] stay escaped</p>"))
+      .toBe("Ordinary \\[brackets\\] stay escaped");
+  });
+
   test("buffers citation hydration, tolerates later markup-only rewrites, and rejects text rewrites", () => {
     const plain = "<p>Source</p>";
     const linked = '<p><a href="https://example.com">Source</a></p>';
@@ -1516,7 +1525,7 @@ describe("ChatGPT outer-native harness v4", () => {
       { key: "source", html: `${linked}<button>Copy</button>`, text: "Source", streamable: true },
     ], 200)).toBe("");
 
-    const rewritten = new ChatGptMarkdownBuffer(markdown => markdown, 100, 500);
+    const rewritten = new ChatGptMarkdownBuffer(markdown => markdown, 100);
     const source = [{ key: "source", html: plain, text: "Source", streamable: true }];
     expect(rewritten.observe(source, 0)).toBe("");
     expect(rewritten.observe(source, 100)).toBe("Source");
@@ -1526,20 +1535,162 @@ describe("ChatGPT outer-native harness v4", () => {
     expect(rewritten.observe(different, 200)).toBe("");
     expect(rewritten.currentSnapshotIsConsistent()).toBe(false);
     expect(() => rewritten.finish()).toThrow("completed text block");
-    expect(() => rewritten.observe(different, 700)).toThrow("completed text block");
+    expect(rewritten.observe(different, 700)).toBe("");
   });
 
   test("recovers from a transient React frame that omits already-streamed Markdown blocks", () => {
-    const buffer = new ChatGptMarkdownBuffer(markdown => markdown, 100, 500);
+    const buffer = new ChatGptMarkdownBuffer(markdown => markdown, 100);
     const first = { key: "first", html: "<p>First</p>", text: "First", streamable: true };
     const second = { key: "second", html: "<p>Second</p>", text: "Second", streamable: false };
     expect(buffer.observe([first], 0)).toBe("");
     expect(buffer.observe([first], 100)).toBe("First");
     expect(buffer.observe([], 150)).toBe("");
-    expect(buffer.currentSnapshotIsConsistent()).toBe(false);
+    expect(buffer.currentSnapshotIsConsistent()).toBe(true);
     expect(buffer.observe([first, second], 200)).toBe("");
     expect(buffer.currentSnapshotIsConsistent()).toBe(true);
     expect(buffer.finish()).toEqual({ markdown: "First\n\nSecond", delta: "\n\nSecond" });
+  });
+
+  test("continues an append-only stream when ChatGPT permanently virtualizes committed DOM prefixes", () => {
+    const buffer = new ChatGptMarkdownBuffer(markdown => markdown, 100);
+    const segment = (
+      text: string,
+      sourceStart: number,
+      sourceEnd: number,
+      streamable: boolean,
+    ) => ({
+      key: `${sourceStart}:p`,
+      tag: "p",
+      html: `<p data-start="${sourceStart}" data-end="${sourceEnd}">${text}</p>`,
+      text,
+      sourceStart,
+      sourceEnd,
+      streamable,
+    });
+    const first = segment("First", 0, 5, true);
+    const secondTail = segment("Second", 7, 13, false);
+    expect(buffer.observe([first, secondTail], 0)).toBe("");
+    expect(buffer.observe([first, secondTail], 100)).toBe("First");
+
+    const second = { ...secondTail, streamable: true };
+    const thirdTail = segment("Third", 15, 20, false);
+    expect(buffer.observe([second, thirdTail], 150)).toBe("");
+    expect(buffer.observe([second, thirdTail], 250)).toBe("\n\nSecond");
+
+    const third = { ...thirdTail, streamable: true };
+    const fourth = segment("Fourth", 22, 28, false);
+    expect(buffer.observe([third, fourth], 300)).toBe("");
+    expect(buffer.observe([third, fourth], 400)).toBe("\n\nThird");
+    expect(buffer.finish()).toEqual({
+      markdown: "First\n\nSecond\n\nThird\n\nFourth",
+      delta: "\n\nFourth",
+    });
+  });
+
+  test("uses source ranges across DOM remount keys but still rejects a committed semantic rewrite", () => {
+    const buffer = new ChatGptMarkdownBuffer(markdown => markdown, 100);
+    const original = {
+      key: "old-root:0",
+      tag: "p",
+      html: '<p data-start="0" data-end="6">Stable</p>',
+      text: "Stable",
+      sourceStart: 0,
+      sourceEnd: 6,
+      streamable: true,
+    };
+    expect(buffer.observe([original], 0)).toBe("");
+    expect(buffer.observe([original], 100)).toBe("Stable");
+
+    const remounted = { ...original, key: "new-root:0" };
+    const tail = {
+      key: "8:p",
+      tag: "p",
+      html: '<p data-start="8" data-end="11">Tail</p>',
+      text: "Tail",
+      sourceStart: 8,
+      sourceEnd: 11,
+      streamable: false,
+    };
+    expect(buffer.observe([remounted, tail], 150)).toBe("");
+    expect(buffer.currentSnapshotIsConsistent()).toBe(true);
+
+    const rewritten = {
+      ...remounted,
+      html: '<p data-start="0" data-end="6">Changed</p>',
+      text: "Changed",
+    };
+    expect(buffer.observe([rewritten, tail], 200)).toBe("");
+    expect(buffer.currentSnapshotIsConsistent()).toBe(false);
+    expect(() => buffer.finish()).toThrow("changed a completed text block");
+  });
+
+  test("distinguishes repeated paragraphs by source range after the first copy is virtualized", () => {
+    const buffer = new ChatGptMarkdownBuffer(markdown => markdown, 100);
+    const repeated = (sourceStart: number, sourceEnd: number, streamable: boolean) => ({
+      key: `${sourceStart}:p`,
+      tag: "p",
+      html: `<p data-start="${sourceStart}" data-end="${sourceEnd}">Same</p>`,
+      text: "Same",
+      sourceStart,
+      sourceEnd,
+      streamable,
+    });
+    const first = repeated(0, 4, true);
+    const secondTail = repeated(6, 10, false);
+    expect(buffer.observe([first, secondTail], 0)).toBe("");
+    expect(buffer.observe([first, secondTail], 100)).toBe("Same");
+    const second = { ...secondTail, streamable: true };
+    const tail = {
+      key: "12:p",
+      tag: "p",
+      html: '<p data-start="12" data-end="16">Tail</p>',
+      text: "Tail",
+      sourceStart: 12,
+      sourceEnd: 16,
+      streamable: false,
+    };
+    expect(buffer.observe([second, tail], 150)).toBe("");
+    expect(buffer.observe([second, tail], 250)).toBe("\n\nSame");
+    expect(buffer.finish()).toEqual({
+      markdown: "Same\n\nSame\n\nTail",
+      delta: "\n\nTail",
+    });
+  });
+
+  test("fails closed when a DOM snapshot reverses ChatGPT source order", () => {
+    const buffer = new ChatGptMarkdownBuffer(markdown => markdown, 0);
+    const first = {
+      key: "0:p",
+      tag: "p",
+      html: '<p data-start="0" data-end="4">First</p>',
+      text: "First",
+      sourceStart: 0,
+      sourceEnd: 4,
+      streamable: true,
+    };
+    expect(buffer.observe([first], 0)).toBe("First");
+    const reversed = [
+      {
+        key: "12:p",
+        tag: "p",
+        html: '<p data-start="12" data-end="16">Later</p>',
+        text: "Later",
+        sourceStart: 12,
+        sourceEnd: 16,
+        streamable: true,
+      },
+      {
+        key: "6:p",
+        tag: "p",
+        html: '<p data-start="6" data-end="10">Earlier</p>',
+        text: "Earlier",
+        sourceStart: 6,
+        sourceEnd: 10,
+        streamable: false,
+      },
+    ];
+    expect(buffer.observe(reversed, 1)).toBe("");
+    expect(() => buffer.finish()).toThrow("non-monotonic source ranges");
   });
 
   test("an appended inline tail extends already-streamed block Markdown without collapsing it", () => {
@@ -2587,4 +2738,64 @@ describe("ChatGPT outer-native harness v4", () => {
       await broker.close();
     }
   }, 30_000);
+
+  test("an explicitly aborted MCP request revokes its turn binding and leaves the stdio server usable", async () => {
+    const socketPath = brokerTestEndpoint(`cgw-h3-mcp-abort-${process.pid}-${Date.now()}`);
+    const broker = TurnBroker.forSocket(socketPath);
+    const environment = extractChatGptTurnEnvironment(parsed(environmentXml));
+    environment.tools = [
+      { name: "exec_command", description: "Run a Codex command", parameters: { type: "object" } },
+    ];
+    const abandonedToken = await broker.register(environment, 3_000);
+    const replacementToken = await broker.register(environment);
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: ["src/cli.ts", "mcp", "--broker-socket", socketPath],
+      cwd: process.cwd(),
+      stderr: "pipe",
+    });
+    const client = new Client({ name: "codex-chatgpt-web-mcp-abort-test", version: "1.0.0" });
+
+    try {
+      expect(chatGptMcpInvocationTimeout(environment)).toBe(CHATGPT_WEB_MCP_INVOCATION_TIMEOUT_MS);
+      expect(chatGptMcpInvocationTimeout({ ...environment, expiresAt: 1_500 }, 1_000)).toBe(500);
+      await client.connect(transport);
+      const abort = new AbortController();
+      const abandoned = client.callTool({
+        name: "codex_exec",
+        arguments: { turn_token: abandonedToken, cmd: "sleep forever", yield_time_ms: 30_000 },
+      }, undefined, { signal: abort.signal });
+      const [request] = await broker.nextToolBatch(abandonedToken);
+      expect(request).toMatchObject({ wireName: "exec_command" });
+      abort.abort(new Error("synthetic MCP client cancellation"));
+      await expect(abandoned).rejects.toBeDefined();
+
+      const deadline = Date.now() + 5_000;
+      let abandonedError: unknown;
+      do {
+        try {
+          await callTurnBroker(socketPath, { method: "claim", token: abandonedToken });
+        } catch (error) {
+          abandonedError = error;
+          break;
+        }
+        await Bun.sleep(10);
+      } while (Date.now() < deadline);
+      expect(String(abandonedError)).toContain("already finished");
+
+      const inventory = await client.callTool({
+        name: "codex_tool_inventory",
+        arguments: { turn_token: replacementToken, query: "exec_command", include_schema: false },
+      });
+      expect(inventory.structuredContent).toMatchObject({
+        total: 1,
+        tools: [{ wire_name: "exec_command" }],
+      });
+    } finally {
+      await client.close().catch(() => {});
+      broker.revoke(abandonedToken);
+      broker.revoke(replacementToken);
+      await broker.close();
+    }
+  }, 10_000);
 });
