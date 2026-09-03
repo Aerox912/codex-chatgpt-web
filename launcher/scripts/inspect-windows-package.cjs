@@ -77,7 +77,7 @@ async function main() {
   }
 
   const runtimeManifest = JSON.parse(fs.readFileSync(runtimeManifestPath, "utf8"));
-  if (runtimeManifest.schemaVersion !== 1
+  if (runtimeManifest.schemaVersion !== 2
     || runtimeManifest.appVersion !== expectedVersion
     || runtimeManifest.platform !== "win32"
     || runtimeManifest.arch !== "x64"
