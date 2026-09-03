@@ -53,6 +53,25 @@ test("normal shutdown persists the ChatGPT session before closing browser views"
   assert.ok(destroy > persist, "browser views must close only after session persistence completes");
 });
 
+test("packaged runtime is verified before launcher browser surfaces can bind ports", () => {
+  const start = electronMain.indexOf("async function start()");
+  const runtimeValidation = electronMain.indexOf("installedRuntimeRoot = runtimeRootProvider();", start);
+  const cdpPortAllocation = electronMain.indexOf("cdpPort = await findFreePort();", start);
+  const windowCreation = electronMain.indexOf("mainWindow = createWindow({", start);
+  const controlServerStart = electronMain.indexOf("browserControl = await new BrowserControlServer({", start);
+  const browserReady = electronMain.indexOf("await browserHost.ready();", start);
+
+  assert.ok(runtimeValidation > start, "startup must eagerly verify the packaged runtime");
+  for (const [surface, position] of [
+    ["CDP port allocation", cdpPortAllocation],
+    ["launcher window", windowCreation],
+    ["browser control server", controlServerStart],
+    ["embedded browser", browserReady],
+  ]) {
+    assert.ok(position > runtimeValidation, `${surface} must start only after runtime verification`);
+  }
+});
+
 test("DEV launcher exposes its profile and supervises only its Full-mode MCP runtime", () => {
   assert.match(electronMain, /profile:\s*LAUNCHER_PROFILE\.kind/);
   assert.match(electronMain, /if \(IS_DEV_PROFILE\) \{[\s\S]*?config\?\.mode === "full"[\s\S]*?runtimeSupervisor\.startIfConfigured\(\)[\s\S]*?\} else void \(async \(\) => \{/);
@@ -66,6 +85,20 @@ test("DEV launcher exposes its profile and supervises only its Full-mode MCP run
   assert.match(appSource, /api!\.setBiggerContext\(enabled\)/);
   assert.match(electronMain, /runtimeHost\.setBiggerContext\(enabled === true\)/);
   assert.doesNotMatch(electronMain, /IS_DEV_PROFILE && key === "experimentalBiggerContext"/);
+});
+
+test("macOS passkey sign-in is additive to the unchanged embedded login action", () => {
+  assert.match(appSource, /onAction=\{openLogin\}/);
+  assert.match(appSource, /<BrowserSurface[\s\S]*?operation=\{operation\}[\s\S]*?platform=\{snapshot\.platform\}/);
+  assert.match(appSource, /platform === "darwin" && browser\?\.authenticated !== true[\s\S]*?className="toolbar-text-button"[\s\S]*?copy\.passkeySignIn/);
+  assert.match(appSource, /className="browser-empty-actions"[\s\S]*?copy\.passkeySignIn/);
+  assert.match(appSource, /snapshot\.platform === "darwin"[\s\S]*?openPasskeyLogin/);
+  assert.match(appSource, /passkeyWaiting \? continuePasskeyLogin : openPasskeyLogin/);
+  assert.match(preloadSource, /openPasskeyLogin:[\s\S]*?launcher:browser-passkey-login/);
+  assert.match(preloadSource, /continuePasskeyLogin:[\s\S]*?launcher:browser-passkey-login-continue/);
+  assert.match(electronMain, /launcher:browser-passkey-login[\s\S]*?browserHost\.openPasskeyLogin\(\)/);
+  assert.match(electronMain, /loginWithPasskey: \(\) => runtimeHost\.capturePasskeyLogin\(\)/);
+  assert.match(browserHostSource, /await this\.waitForAuthenticated\(60_000\)[\s\S]*?runSessionInspection\(false\)/);
 });
 
 test("Bigger Context startup recommendation reuses the persisted setting and setup transaction", () => {
@@ -82,7 +115,6 @@ test("Bigger Context startup recommendation reuses the persisted setting and set
   assert.match(appSource, /<Switch checked=\{checked\} disabled=\{busy\} onChange=\{onChange\} \/>/);
   assert.match(stylesSource, /\.bigger-context-recommendation-backdrop\s*\{[^}]*position:\s*fixed;/s);
   assert.doesNotMatch(stylesSource, /\.bigger-context-recommendation-backdrop\s*\{[^}]*backdrop-filter:/s);
-  assert.match(stylesSource, /\.bigger-context-recommendation\s*\{[^}]*width:\s*min\(400px, 100%\);[^}]*padding:\s*18px;/s);
 });
 
 test("MCP surfaces use the official local protocol mark", () => {

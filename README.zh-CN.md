@@ -6,7 +6,11 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a>
+  <a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.ja.md">日本語</a>
+</p>
+
+<p align="center">
+  <a href="TROUBLESHOOTING.md">故障排除</a> · <a href="SECURITY.md">安全</a> · <a href="CONTRIBUTING.md">贡献</a>
 </p>
 
 <p align="center">
@@ -201,6 +205,7 @@ DEV tunnel 就绪，具名聊天按需连接 broker。正式凭据和 `Codex Nat
 - [架构说明](docs/architecture.md)
 - [DEV chat harness](docs/dev-chat.md)
 - [安全模型](docs/security-model.md)
+- [故障排除](TROUBLESHOOTING.md)
 - [贡献指南](CONTRIBUTING.md)
 
 ## Star History

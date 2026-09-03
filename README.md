@@ -6,7 +6,11 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a>
+  <a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.ja.md">日本語</a>
+</p>
+
+<p align="center">
+  <a href="TROUBLESHOOTING.md">Troubleshooting</a> · <a href="SECURITY.md">Security</a> · <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
 <p align="center">
@@ -239,6 +243,7 @@ reused implicitly. See
 - [Architecture](docs/architecture.md)
 - [DEV chat harness](docs/dev-chat.md)
 - [Security model](docs/security-model.md)
+- [Troubleshooting](TROUBLESHOOTING.md)
 - [Contributing](CONTRIBUTING.md)
 
 ## Star History
