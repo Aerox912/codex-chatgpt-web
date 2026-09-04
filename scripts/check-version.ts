@@ -31,7 +31,7 @@ const expected = [
   [".github/workflows/ci.yml", "prepare-fork-bun-runtime.ps1"],
   [".github/workflows/release.yml", `Bun-${bunVersion}.md`],
   [".github/workflows/release.yml", "prepare-fork-bun-runtime.ps1"],
-  ["scripts/prepare-fork-bun-runtime.ps1", "1.4.0-canary.1+7a7885a04"],
+  ["scripts/prepare-fork-bun-runtime.ps1", "1.4.0+34cbb9a40"],
 ] as const;
 for (const [path, needle] of expected) {
   if (!readFileSync(resolve(root, path), "utf8").includes(needle)) throw new Error(`${path} is not synchronized to ${packageVersion}`);

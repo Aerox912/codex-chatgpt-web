@@ -261,7 +261,7 @@ test("release does not publish demo or screenshot assets", () => {
   assert.doesNotMatch(release, /release-assets\/[^\n]*(?:demo|screenshot)/i);
 });
 
-test("Windows releases embed the hash-pinned fork Bun runtime", () => {
+test("Windows releases embed the hash-pinned stable Bun runtime with the streaming fix", () => {
   const builder = fs.readFileSync(path.join(repositoryRoot, "scripts", "build-runtime-bundle.ts"), "utf8");
   const baseline = fs.readFileSync(
     path.join(repositoryRoot, "scripts", "prepare-windows-baseline-bun.ps1"),
@@ -279,10 +279,11 @@ test("Windows releases embed the hash-pinned fork Bun runtime", () => {
   assert.match(baseline, /SHASUMS256\.txt/);
   assert.match(baseline, /Get-FileHash[^\n]+SHA256/);
   assert.match(baseline, /CODEX_CHATGPT_WEB_EMBEDDED_BUN=/);
-  assert.match(forkRuntime, /Aerox912\/codex-chatgpt-web/);
-  assert.match(forkRuntime, /toolchain-bun-1\.4\.0-pr32120-7a7885a04/);
-  assert.match(forkRuntime, /a97d1123441b03a3ba74de9f99ed0fa4ba22a48126651cb87025da082aaa048f/);
-  assert.match(forkRuntime, /d9f1d90b24894040749cbb678c171fec9b512f496c4c0a4d67c7180d3e565a97/);
-  assert.match(forkRuntime, /1\.4\.0-canary\.1\+7a7885a04/);
+  assert.match(forkRuntime, /oven-sh\/bun/);
+  assert.match(forkRuntime, /bun-v1\.4\.0/);
+  assert.match(forkRuntime, /e6f093d39da486b20262ca8cdd5ed6a9e8bc9c2f275b78e6d3a0c5b28cc95901/);
+  assert.match(forkRuntime, /627d2e4775c24bdedee2cd7ccc18dcadae061e5345274ab6e3c4c797927bfb8f/);
+  assert.match(forkRuntime, /1\.4\.0\+34cbb9a40/);
+  assert.match(forkRuntime, /bun-windows-x64\/bun\.exe/);
   assert.match(forkRuntime, /CODEX_CHATGPT_WEB_EMBEDDED_BUN_REVISION/);
 });

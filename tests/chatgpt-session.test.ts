@@ -5,6 +5,7 @@ import {
   CHATGPT_EFFORT_CONTROL_SELECTOR,
   CHATGPT_EFFORT_MENU_SELECTOR,
   CHATGPT_EFFORT_SLIDER_SELECTOR,
+  activateChatGptEffortMenu,
   detectChatGptAccountCapabilities,
 } from "../src/chatgpt-session";
 
@@ -43,6 +44,109 @@ test("a signed-out guest composer does not complete ChatGPT login", async () => 
 
 test("a visible composer with a signed-in account session completes ChatGPT login", async () => {
   await expect(assertAuthenticatedChatGptPage(authenticationPage(true) as never)).resolves.toBeUndefined();
+});
+
+test("effort activation binds the owned menu after the control opens", async () => {
+  let opened = false;
+  const ownedMenu = { isVisible: async () => opened };
+  const hiddenSurface = {
+    filter() { return this; },
+    last() { return this; },
+    isVisible: async () => false,
+  };
+  const control = {
+    getAttribute: async (name: string) => {
+      if (name === "aria-controls") return opened ? "radix-effort-menu" : null;
+      if (name === "aria-expanded") return opened ? "true" : "false";
+      if (name === "data-state") return opened ? "open" : "closed";
+      return null;
+    },
+    click: async (options: unknown) => {
+      expect(options).toEqual({ force: true, timeout: 1 });
+      opened = true;
+    },
+  };
+  const page = {
+    locator: (selector: string) => {
+      if (selector === '[id="radix-effort-menu"]') return ownedMenu;
+      return hiddenSurface;
+    },
+    keyboard: { press: async () => {} },
+  };
+
+  const activation = await activateChatGptEffortMenu(page as never, control as never, { settleMs: 0 });
+  expect(activation.method).toBe("click");
+  expect(activation.menu).toBe(ownedMenu as never);
+});
+
+test("effort activation retries one ghost click with a primary pointerdown", async () => {
+  let ghostOpen = false;
+  let pointerOpened = false;
+  const events: unknown[] = [];
+  const ownedMenu = { isVisible: async () => pointerOpened };
+  const hiddenSurface = {
+    filter() { return this; },
+    last() { return this; },
+    isVisible: async () => false,
+  };
+  const control = {
+    getAttribute: async (name: string) => {
+      if (name === "aria-controls") return pointerOpened ? "radix-effort-menu" : null;
+      if (name === "aria-expanded") return ghostOpen ? "true" : "false";
+      if (name === "data-state") return ghostOpen ? "open" : "closed";
+      return null;
+    },
+    click: async (options: unknown) => {
+      events.push(["click", options]);
+      ghostOpen = true;
+    },
+    dispatchEvent: async (name: string, detail: unknown) => {
+      events.push([name, detail]);
+      ghostOpen = true;
+      pointerOpened = true;
+    },
+  };
+  const page = {
+    locator: (selector: string) => {
+      if (selector === '[id="radix-effort-menu"]') return ownedMenu;
+      return hiddenSurface;
+    },
+    keyboard: {
+      press: async (key: string) => {
+        events.push(["keyboard", key]);
+        ghostOpen = false;
+      },
+    },
+  };
+
+  const activation = await activateChatGptEffortMenu(page as never, control as never, { settleMs: 0 });
+  expect(activation.method).toBe("pointerdown");
+  expect(activation.menu).toBe(ownedMenu as never);
+  expect(events).toEqual([
+    ["click", { force: true, timeout: 1 }],
+    ["keyboard", "Escape"],
+    ["pointerdown", { button: 0, buttons: 1, pointerType: "mouse", isPrimary: true }],
+  ]);
+});
+
+test("effort activation fails closed when neither event exposes a structural surface", async () => {
+  const hiddenSurface = {
+    filter() { return this; },
+    last() { return this; },
+    isVisible: async () => false,
+  };
+  const control = {
+    getAttribute: async () => null,
+    click: async () => {},
+    dispatchEvent: async () => {},
+  };
+  const page = {
+    locator: () => hiddenSurface,
+    keyboard: { press: async () => {} },
+  };
+
+  await expect(activateChatGptEffortMenu(page as never, control as never, { settleMs: 0 }))
+    .rejects.toThrow("did not expose its owned menu or structural slider");
 });
 
 test("a complete authenticated composer with no effort selector is Luna-only", async () => {

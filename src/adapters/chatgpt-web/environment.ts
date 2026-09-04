@@ -64,8 +64,8 @@ function pathIdentity(value: string): string {
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 
-function clientTurnMetadata(parsed: CodexParsedRequest): Record<string, unknown> | undefined {
-  const body = record(parsed._rawBody);
+function clientTurnMetadataFromBody(value: unknown): Record<string, unknown> | undefined {
+  const body = record(value);
   const metadata = record(body?.client_metadata);
   const raw = metadata?.["x-codex-turn-metadata"];
   if (typeof raw === "string") {
@@ -73,6 +73,10 @@ function clientTurnMetadata(parsed: CodexParsedRequest): Record<string, unknown>
     catch { return undefined; }
   }
   return record(raw);
+}
+
+function clientTurnMetadata(parsed: CodexParsedRequest): Record<string, unknown> | undefined {
+  return clientTurnMetadataFromBody(parsed._rawBody);
 }
 
 function itemTurnId(value: unknown): string | undefined {
@@ -89,6 +93,16 @@ function rawMessageText(value: Record<string, unknown>): string {
     .join("\n");
 }
 
+/** True when the raw Responses input attempted to carry an environment envelope, valid or not. */
+export function hasRawChatGptEnvironmentContext(parsed: CodexParsedRequest): boolean {
+  const body = record(parsed._rawBody);
+  const input = Array.isArray(body?.input) ? body.input : [];
+  return input.some(value => {
+    const item = record(value);
+    return item?.type === "message" && /<\/?environment_context\b/i.test(rawMessageText(item));
+  });
+}
+
 function contextualUserMessage(value: Record<string, unknown>): boolean {
   const text = rawMessageText(value).trim();
   return /^<environment_context>[\s\S]*<\/environment_context>$/.test(text)
@@ -99,6 +113,25 @@ function contextualUserMessage(value: Record<string, unknown>): boolean {
 
 function isTurnAbortedNotice(value: Record<string, unknown>): boolean {
   return /^<turn_aborted>[\s\S]*<\/turn_aborted>$/.test(rawMessageText(value).trim());
+}
+
+/** Native turn ids that Codex has authoritatively marked as interrupted in this thread. */
+export function priorChatGptAbortedTurnIds(parsed: CodexParsedRequest): string[] {
+  const currentTurnId = extractChatGptTurnIdentity(parsed).turnId;
+  if (!currentTurnId) return [];
+  const body = record(parsed._rawBody);
+  const input = Array.isArray(body?.input) ? body.input : [];
+  return [...new Set(input.flatMap(value => {
+    const item = record(value);
+    const abortedTurnId = item ? itemTurnId(item) : undefined;
+    return item?.type === "message"
+      && item.role === "user"
+      && isTurnAbortedNotice(item)
+      && abortedTurnId !== undefined
+      && abortedTurnId !== currentTurnId
+      ? [abortedTurnId]
+      : [];
+  }))];
 }
 
 /**
@@ -361,7 +394,8 @@ function rawEnvironmentText(parsed: CodexParsedRequest): string | undefined {
   const input = Array.isArray(body?.input) ? body.input : [];
   let activeUserIndex = -1;
   for (let index = input.length - 1; index >= 0; index -= 1) {
-    if (record(input[index])?.role === "user") {
+    const item = record(input[index]);
+    if (item?.role === "user" && !contextualUserMessage(item)) {
       activeUserIndex = index;
       break;
     }
@@ -440,6 +474,10 @@ function clientMetadataWorkspaceRoots(parsed: CodexParsedRequest): string[] {
 function trustedEnvironmentText(parsed: CodexParsedRequest): string {
   const raw = rawEnvironmentText(parsed);
   if (raw) return raw;
+  // A real Responses request always has `_rawBody`. Parsed system/developer text has already lost
+  // the wire provenance needed to distinguish Codex context from user-authored XML, so it must
+  // never become filesystem authority for a raw request.
+  if (parsed._rawBody !== undefined) return "";
   const system = parsed.context.systemPrompt ?? [];
   const developer = parsed.context.messages
     .filter(message => message.role === "developer")
@@ -459,7 +497,23 @@ function decodeXmlText(value: string): string {
 function environmentCwdMatches(text: string, preferredRoots: string[] = []): string[] {
   const sections = [...text.matchAll(/<environments>([\s\S]*?)<\/environments>/gi)];
   if (sections.length === 0) {
-    return [...text.matchAll(/<cwd>([^<]+)<\/cwd>/gi)].map(match => match[1] ?? "");
+    const cwdMatches = [...text.matchAll(/<cwd>([^<]+)<\/cwd>/gi)].map(match => match[1] ?? "");
+    if (cwdMatches.length > 0 || /<\/?cwd\b/i.test(text)) return cwdMatches;
+
+    // Codex Desktop 0.150+ can emit a filesystem-only environment diff when an existing task is
+    // rebound to another model. Its ordered multi-folder contract uses the first workspace root as
+    // the task's working directory and the remaining roots as additional filesystem authority.
+    // Recover only that exact cwd-less shape; malformed cwd markup and multi-environment payloads
+    // continue to fail closed.
+    const rootSections = [...text.matchAll(/<workspace_roots>[\s\S]*?<\/workspace_roots>/gi)];
+    if (rootSections.length !== 1) return [];
+    const rootSection = rootSections[0]![0];
+    const roots = [...rootSection.matchAll(/<root>([^<]+)<\/root>/gi)]
+      .map(match => match[1] ?? "");
+    const rootOpenings = [...rootSection.matchAll(/<root\b[^>]*>/gi)];
+    const rootClosings = [...rootSection.matchAll(/<\/root\s*>/gi)];
+    if (rootOpenings.length !== roots.length || rootClosings.length !== roots.length) return [];
+    return roots.length > 0 ? [roots[0]!] : [];
   }
   if (sections.length !== 1) return [];
 
@@ -546,14 +600,21 @@ export function extractChatGptTurnEnvironment(parsed: CodexParsedRequest): ChatG
 
 export function extractChatGptTurnIdentity(parsed: CodexParsedRequest): ChatGptTurnIdentity {
   const body = record(parsed._rawBody);
-  const metadata = clientTurnMetadata(parsed);
+  return {
+    ...extractCodexTurnIdentityFromBody(body),
+    ...(typeof body?.prompt_cache_key === "string" ? { promptCacheKey: body.prompt_cache_key } : {}),
+  };
+}
+
+/** Read only Codex-owned lifecycle identity without interpreting or rewriting the provider body. */
+export function extractCodexTurnIdentityFromBody(value: unknown): ChatGptTurnIdentity {
+  const metadata = clientTurnMetadataFromBody(value);
   return {
     ...(typeof metadata?.thread_id === "string" ? { threadId: metadata.thread_id } : {}),
     ...(typeof metadata?.turn_id === "string" ? { turnId: metadata.turn_id } : {}),
     ...(typeof metadata?.parent_thread_id === "string" ? { parentThreadId: metadata.parent_thread_id } : {}),
     ...(typeof metadata?.agent_name === "string" ? { agentName: metadata.agent_name } : {}),
     ...(typeof metadata?.subagent_kind === "string" ? { subagentKind: metadata.subagent_kind } : {}),
-    ...(typeof body?.prompt_cache_key === "string" ? { promptCacheKey: body.prompt_cache_key } : {}),
   };
 }
 

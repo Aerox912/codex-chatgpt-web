@@ -6,13 +6,15 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$Repository = "Aerox912/codex-chatgpt-web"
-$ToolchainTag = "toolchain-bun-1.4.0-pr32120-7a7885a04"
-$AssetName = "bun-windows-x64-pr32120-7a7885a04.zip"
-$ArchiveSha256 = "a97d1123441b03a3ba74de9f99ed0fa4ba22a48126651cb87025da082aaa048f"
-$BunSha256 = "d9f1d90b24894040749cbb678c171fec9b512f496c4c0a4d67c7180d3e565a97"
+# Official 1.4.0 includes PR #32120 (8dd1b617) and avoids the old canary's
+# retained-compaction deadline stall. Keep the fork's exact hash/revision gate.
+$Repository = "oven-sh/bun"
+$ToolchainTag = "bun-v1.4.0"
+$AssetName = "bun-windows-x64.zip"
+$ArchiveSha256 = "e6f093d39da486b20262ca8cdd5ed6a9e8bc9c2f275b78e6d3a0c5b28cc95901"
+$BunSha256 = "627d2e4775c24bdedee2cd7ccc18dcadae061e5345274ab6e3c4c797927bfb8f"
 $ExpectedVersion = "1.4.0"
-$ExpectedRevision = "1.4.0-canary.1+7a7885a04"
+$ExpectedRevision = "1.4.0+34cbb9a40"
 $Url = "https://github.com/$Repository/releases/download/$ToolchainTag/$AssetName"
 
 if (-not [IO.Path]::IsPathFullyQualified($GitHubEnv)) {
@@ -31,7 +33,7 @@ if ($ActualArchiveSha256 -ne $ArchiveSha256) {
 }
 
 Expand-Archive -LiteralPath $Archive -DestinationPath $Stage
-$Bun = Join-Path $Stage "bun.exe"
+$Bun = Join-Path $Stage "bun-windows-x64/bun.exe"
 if (-not (Test-Path -LiteralPath $Bun -PathType Leaf)) {
   throw "Fork Bun archive does not contain bun.exe"
 }
