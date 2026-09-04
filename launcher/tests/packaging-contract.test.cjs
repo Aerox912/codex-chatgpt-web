@@ -286,4 +286,8 @@ test("Windows releases embed the hash-pinned stable Bun runtime with the streami
   assert.match(forkRuntime, /1\.4\.0\+34cbb9a40/);
   assert.match(forkRuntime, /bun-windows-x64\/bun\.exe/);
   assert.match(forkRuntime, /CODEX_CHATGPT_WEB_EMBEDDED_BUN_REVISION/);
+  const notice = fs.readFileSync(path.join(repositoryRoot, "LICENSES", "Bun-1.4.0-pr32120.md"), "utf8");
+  assert.match(notice, /1\.4\.0\+34cbb9a40/);
+  assert.match(notice, /627d2e4775c24bdedee2cd7ccc18dcadae061e5345274ab6e3c4c797927bfb8f/);
+  assert.doesNotMatch(notice, /canary|7a7885a04/);
 });

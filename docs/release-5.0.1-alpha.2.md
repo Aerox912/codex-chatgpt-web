@@ -1,4 +1,4 @@
-# Aerox 5.0.1-alpha.1
+# Aerox 5.0.1-alpha.2
 
 Integrates canonical `miuuyy/codex-chatgpt-web` through
 `9a7428a9d1fced9baaa85112994c02c011a3b7c9` (5.0.1), retaining the Aerox
