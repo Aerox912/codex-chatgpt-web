@@ -19,13 +19,15 @@ const {
   isChatGptCloudflareChallengeResponse,
   isTemporaryChatUrl,
   loadCommittedBrowserSurface,
+  MANUAL_COMPACTION_SUBMIT_TIMEOUT_MS,
   MANUAL_SUBMIT_TIMEOUT_MS,
   navigationErrorForLog,
   navigationOriginForLog,
 } = require("../electron/browser-host.cjs");
 
-test("manual prompt handoff has one thirty-second user deadline", () => {
+test("manual prompt handoff keeps ordinary turns at thirty seconds and compaction at two minutes", () => {
   assert.equal(MANUAL_SUBMIT_TIMEOUT_MS, 30_000);
+  assert.equal(MANUAL_COMPACTION_SUBMIT_TIMEOUT_MS, 120_000);
 });
 
 test("Electron and Bun agree on the exact launcher idle surface", () => {
@@ -2531,7 +2533,7 @@ function manualTurnFixture() {
     showWindow() {},
     show() {},
     writeDescriptor() {},
-    createManualTurnTab(traceId, helperPid, conversationKey, prompt) {
+    createManualTurnTab(traceId, helperPid, conversationKey, prompt, manualSubmitTimeoutMs) {
       const tab = {
         id: `manual-${this.turnTabs.size + 1}`,
         traceId,
@@ -2542,7 +2544,8 @@ function manualTurnFixture() {
         loading: false,
         label: `ChatGPT ${this.turnTabs.size + 1}`,
         manualState: "awaiting-user",
-        manualDeadlineAt: Date.now() + 30_000,
+        manualSubmitTimeoutMs,
+        manualDeadlineAt: Date.now() + manualSubmitTimeoutMs,
         manualDeadlineTimer: null,
         manualWaiters: new Set(),
         manualTerminalWaiters: new Set(),
@@ -2573,6 +2576,42 @@ test("manual start is idempotent and never exposes its private prompt in snapsho
   assert.deepEqual(clipboardWrites, ["private prompt"]);
   assert.equal(JSON.stringify(fixture.snapshot()).includes("private prompt"), false);
   for (const tab of fixture.turnTabs.values()) clearTimeout(tab.manualDeadlineTimer);
+});
+
+test("manual confirmation deadlines end at Sent so slow model startup can still complete", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_000_000 });
+  const { fixture } = manualTurnFixture();
+  const ordinary = fixture.beginManualTurn("manual_ordinary", process.pid, "ordinary prompt");
+  const compaction = fixture.beginManualTurn(
+    "manual_compaction",
+    process.pid,
+    "compaction prompt",
+    undefined,
+    undefined,
+    true,
+  );
+  const ordinaryTab = fixture.turnTabs.get(ordinary.tabId);
+  const compactionTab = fixture.turnTabs.get(compaction.tabId);
+  assert.equal(ordinaryTab.manualSubmitTimeoutMs, 30_000);
+  assert.equal(compactionTab.manualSubmitTimeoutMs, 120_000);
+  t.mock.timers.tick(31_000);
+  assert.equal(ordinaryTab.manualState, "timed-out");
+  assert.equal(compactionTab.manualState, "awaiting-user");
+
+  const slow = fixture.beginManualTurn("manual_slow_model", process.pid, "slow model prompt");
+  fixture.confirmManualSent(slow.tabId);
+  fixture.confirmManualSent(compaction.tabId);
+  t.mock.timers.tick(180_000);
+  for (const lease of [slow, compaction]) {
+    const tab = fixture.turnTabs.get(lease.tabId);
+    assert.equal(tab.manualState, "sent");
+    assert.equal(tab.manualDeadlineAt, null);
+    assert.equal(tab.manualDeadlineTimer, null);
+    assert.equal((await fixture.waitManualSent(tab.traceId, process.pid)).status, "sent");
+    fixture.markManualTurnStarted(tab.traceId, process.pid);
+    fixture.endManualTurn(tab.traceId, process.pid, "completed");
+    assert.equal(fixture.manualCompletionSignals.has(tab.traceId), true);
+  }
 });
 
 test("manual completion is idempotent and cannot be downgraded after a lost acknowledgement", () => {

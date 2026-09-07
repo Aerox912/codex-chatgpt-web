@@ -32,6 +32,7 @@ const MAX_BROWSER_VIEW_DIMENSION = 16_384;
 const MAX_BROWSER_TABS = 5;
 const MAX_CANCELLED_TURN_TRACES = 256;
 const MANUAL_SUBMIT_TIMEOUT_MS = 30_000;
+const MANUAL_COMPACTION_SUBMIT_TIMEOUT_MS = 120_000;
 const MAX_MANUAL_TERMINAL_SIGNALS = 256;
 const MAX_MANUAL_PROMPT_CHARS = 1_000_000;
 const INTERACTION_MODE_CHANGE_OPERATION = "browser interaction mode change";
@@ -590,7 +591,7 @@ class BrowserHost {
     return tab;
   }
 
-  createManualTurnTab(traceId, helperPid, conversationKey, prompt) {
+  createManualTurnTab(traceId, helperPid, conversationKey, prompt, manualSubmitTimeoutMs) {
     if (this.turnTabs.size >= MAX_BROWSER_TABS
       && !BrowserHost.prototype.evictOldestReclaimableTurnTab.call(this)) {
       throw new Error(
@@ -629,7 +630,8 @@ class BrowserHost {
       message: "Paste the copied prompt, add any images yourself because Zero Risk cannot transfer them, choose a model and effort, then press Sent",
       interactionMode: "manual",
       manualState: "awaiting-user",
-      manualDeadlineAt: Date.now() + MANUAL_SUBMIT_TIMEOUT_MS,
+      manualSubmitTimeoutMs,
+      manualDeadlineAt: Date.now() + manualSubmitTimeoutMs,
       manualDeadlineTimer: null,
       manualWaiters: new Set(),
       manualTerminalWaiters: new Set(),
@@ -1854,24 +1856,22 @@ class BrowserHost {
 
   armManualTurnDeadline(tab) {
     if (tab.interactionMode !== "manual"
-      || !["awaiting-user", "sent"].includes(tab.manualState)
+      || tab.manualState !== "awaiting-user"
       || !tab.manualDeadlineAt) return;
     if (tab.manualDeadlineTimer) clearTimeout(tab.manualDeadlineTimer);
     const delay = Math.max(0, tab.manualDeadlineAt - Date.now());
     tab.manualDeadlineTimer = setTimeout(() => {
       if (this.turnTabs.get(tab.id) !== tab
-        || !["awaiting-user", "sent"].includes(tab.manualState)) return;
-      const waitingForConnector = tab.manualState === "sent";
+        || tab.manualState !== "awaiting-user") return;
+      const timeoutSeconds = Math.round(tab.manualSubmitTimeoutMs / 1_000);
       tab.status = "error";
-      tab.message = waitingForConnector
-        ? "ChatGPT did not start through the Codex harness within 30 seconds"
-        : "Prompt submission was not confirmed within 30 seconds";
+      tab.message = `Prompt submission was not confirmed within ${timeoutSeconds} seconds`;
       this.signalManualTerminal(tab, "timeout");
       this.publishState?.(this.snapshot());
       this.logger.warn("browser.manual_turn_timed_out", {
         tabId: tab.id,
         traceId: tab.traceId,
-        phase: waitingForConnector ? "connector-start" : "sent-confirmation",
+        phase: "sent-confirmation",
       });
     }, delay);
     tab.manualDeadlineTimer.unref?.();
@@ -1884,7 +1884,7 @@ class BrowserHost {
     this.clipboard.writeText(prompt);
   }
 
-  beginManualTurn(traceId, helperPid, prompt, conversationKey, resumePrompt) {
+  beginManualTurn(traceId, helperPid, prompt, conversationKey, resumePrompt, compaction = false) {
     if (this.manualOperation) {
       throw new Error(`ChatGPT browser is busy with ${this.manualOperation}`);
     }
@@ -1897,6 +1897,10 @@ class BrowserHost {
         || resumePrompt.length > MAX_MANUAL_PROMPT_CHARS)) {
       throw new Error(`Manual resume prompt must contain between 1 and ${MAX_MANUAL_PROMPT_CHARS} characters`);
     }
+    if (typeof compaction !== "boolean") throw new Error("Manual compaction flag must be boolean");
+    const manualSubmitTimeoutMs = compaction
+      ? MANUAL_COMPACTION_SUBMIT_TIMEOUT_MS
+      : MANUAL_SUBMIT_TIMEOUT_MS;
     const completion = this.manualCompletionSignals.get(traceId);
     if (completion) {
       throw new Error(completion.helperPid === helperPid
@@ -1928,6 +1932,9 @@ class BrowserHost {
         );
         error.code = "manual_turn_owner_lost";
         throw error;
+      }
+      if (sameTrace.manualSubmitTimeoutMs !== manualSubmitTimeoutMs) {
+        throw new Error(`Zero Risk turn ${traceId} was retried with a different compaction mode`);
       }
       const retryPrompt = sameTrace.manualConversationReused ? resumePrompt : prompt;
       if (typeof retryPrompt !== "string"
@@ -1968,14 +1975,21 @@ class BrowserHost {
       tab.loading = false;
       tab.message = "Paste the copied prompt, add any images yourself because Zero Risk cannot transfer them, choose a model and effort, then press Sent";
       tab.manualState = "awaiting-user";
-      tab.manualDeadlineAt = Date.now() + MANUAL_SUBMIT_TIMEOUT_MS;
+      tab.manualSubmitTimeoutMs = manualSubmitTimeoutMs;
+      tab.manualDeadlineAt = Date.now() + manualSubmitTimeoutMs;
       tab.prompt = resumePrompt;
       tab.promptDigest = manualPromptDigest(resumePrompt);
       tab.manualConversationReused = true;
       tab.sentAt = null;
       tab.manualTerminalResolutionSuppressed = false;
     } else {
-      tab = this.createManualTurnTab(traceId, helperPid, conversationKey, prompt);
+      tab = this.createManualTurnTab(
+        traceId,
+        helperPid,
+        conversationKey,
+        prompt,
+        manualSubmitTimeoutMs,
+      );
       try {
         this.writeManualPrompt(prompt);
       } catch (error) {
@@ -2074,12 +2088,14 @@ class BrowserHost {
       throw new Error("Zero Risk turn can no longer be marked as sent");
     }
     if (tab.manualDeadlineTimer) clearTimeout(tab.manualDeadlineTimer);
+    tab.manualDeadlineTimer = null;
     tab.manualState = "sent";
-    tab.manualDeadlineAt = Date.now() + MANUAL_SUBMIT_TIMEOUT_MS;
+    // Sent ends the human handoff deadline. Model thinking is owned by the live turn and
+    // remains cancellable through its helper or tab, including before the first MCP bind.
+    tab.manualDeadlineAt = null;
     tab.sentAt = new Date().toISOString();
     tab.prompt = null;
     tab.message = "Prompt sent; waiting for ChatGPT to start through the Codex harness";
-    this.armManualTurnDeadline(tab);
     for (const resolve of tab.manualWaiters) resolve({ status: "sent", sentAt: tab.sentAt });
     tab.manualWaiters.clear();
     this.publishState?.(this.snapshot());
@@ -2878,6 +2894,7 @@ module.exports = {
   isTemporaryChatUrl,
   loadCommittedBrowserSurface,
   MANUAL_SUBMIT_TIMEOUT_MS,
+  MANUAL_COMPACTION_SUBMIT_TIMEOUT_MS,
   navigationErrorForLog,
   navigationOriginForLog,
   TEMPORARY_CHAT_URL,
