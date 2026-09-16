@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BrowserTurn } from "../src/adapters/chatgpt-web/browser-worker";
 import { ChatGptBrowserWorker } from "../src/adapters/chatgpt-web/browser-worker";
-import { chatGptRetainedConversationUnavailableError } from "../src/adapters/chatgpt-web/adapter-error";
+import { ChatGptCompactionHandoffAccepted, chatGptRetainedConversationUnavailableError } from "../src/adapters/chatgpt-web/adapter-error";
 import {
   MAX_COMPACTION_HANDOFF_TIMEOUT_MS,
   cancelAllStructuredCompactions,
@@ -339,7 +339,7 @@ test("a completed retained agent returns an exact checkpoint and its browser is 
     request(true),
     source,
     broker,
-    { localToolsEnabled: true, solAvailable: true, proAvailable: true },
+    { localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: true },
     "trace_handoff",
     undefined,
     60 * 60_000,
@@ -349,6 +349,7 @@ test("a completed retained agent returns an exact checkpoint and its browser is 
   expect(captured?.nativeConnector).toBeTrue();
   expect(captured?.capabilities.localToolsEnabled).toBeFalse();
   expect(browserRetired).toBeTrue();
+  expect(captured?.abortSignal?.reason).toBeInstanceOf(ChatGptCompactionHandoffAccepted);
   expect(transactionAborted).toBeTrue();
   expect(transactionTtl).toBe(MAX_COMPACTION_HANDOFF_TIMEOUT_MS);
 });
@@ -382,7 +383,7 @@ test("completed retained compaction never treats ordinary assistant text as a ha
     request(true),
     source,
     broker,
-    { localToolsEnabled: true, solAvailable: true, proAvailable: true },
+    { localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: true },
     "trace_no_text_fallback",
   )).rejects.toThrow("structured handoff missing");
 });
@@ -417,7 +418,7 @@ test("retained compaction deadline bounds browser settlement after the control h
     request(true),
     source,
     broker,
-    { localToolsEnabled: true, solAvailable: true, proAvailable: true },
+    { localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: true },
     "trace_deadline",
     undefined,
     25,
@@ -1025,7 +1026,7 @@ test("adapter compact returns one same-agent handoff and preserves a pre-existin
       appName: "Codex Native DEV",
       localToolsEnabled: true,
       solAvailable: true,
-      proAvailable: true,
+      extraHighAvailable: true, proAvailable: true,
     },
   };
   const broker = TurnBroker.forSocket(provider.chatgptWeb!.brokerSocketPath!);
@@ -1120,7 +1121,7 @@ test("a compact HTTP observer can reconnect without sending a second retained-ch
       appName: "Codex Native DEV",
       localToolsEnabled: true,
       solAvailable: true,
-      proAvailable: true,
+      extraHighAvailable: true, proAvailable: true,
     },
   };
   const broker = TurnBroker.forSocket(provider.chatgptWeb!.brokerSocketPath!);
@@ -1205,18 +1206,19 @@ test("a compact HTTP observer can reconnect without sending a second retained-ch
   }
 });
 
-test("structured compact rebuilds canonical context when its retained source is absent", async () => {
+test.each([false, true])("structured compact rebuilds canonical context when its retained source is absent (Bigger Context=%s)", async experimentalBiggerContext => {
   const root = mkdtempSync(join(shortSocketTempRoot(), "cgw-missing-retained-compact-"));
   const provider: CodexProviderConfig = {
     adapter: "chatgpt-web",
     baseUrl: `browser://missing-retained-${Date.now()}`,
     chatgptWeb: {
+      experimentalBiggerContext,
       browserHost: "launcher",
       browserHostDescriptorPath: join(root, "launcher.json"),
       brokerSocketPath: defaultBrokerEndpoint(root),
       localToolsEnabled: true,
       solAvailable: true,
-      proAvailable: true,
+      extraHighAvailable: true, proAvailable: true,
     },
   };
   const worker = ChatGptBrowserWorker.forProvider(provider);
@@ -1228,13 +1230,21 @@ test("structured compact rebuilds canonical context when its retained source is 
     expect(turn.conversationKey).toBeUndefined();
     expect(turn.compaction).toBeTrue();
     const prepared = await turn.prepare();
-    expect(prepared.text).toContain("Original task");
-    expect(prepared.text).toContain("Continue with the next step");
+    const contextText = prepared.multipart?.parts.join("\n") ?? prepared.text;
+    expect(contextText).toContain("Original task");
+    expect(contextText).toContain("Continue with the next step");
+    if (experimentalBiggerContext) {
+      expect(prepared.multipart!.parts).toHaveLength(3);
+      expect(prepared.trimmedCompactionMessages).toBeUndefined();
+      const lastRecord = prepared.multipart!.parts.flatMap(part => JSON.parse(part).records).at(-1);
+      expect(lastRecord.message.content).toBe(compact.context.messages.at(-1)!.content);
+    }
     prepared.release();
     return "Fallback checkpoint from canonical Codex context";
   };
   const compact = request(true);
   const events: AdapterEvent[] = [];
+  if (experimentalBiggerContext) compact.context.messages.at(-1)!.content += "x".repeat(160_000);
   try {
     await createChatGptWebAdapter(provider).runTurn!(
       compact,
@@ -1265,7 +1275,7 @@ test("fresh multipart compaction gives each acknowledged phase its own handoff b
       brokerSocketPath: defaultBrokerEndpoint(root),
       localToolsEnabled: true,
       solAvailable: true,
-      proAvailable: true,
+      extraHighAvailable: true, proAvailable: true,
       turnTimeoutMs: 40,
     },
   };
@@ -1314,7 +1324,7 @@ test("cancel-all waits for physical settlement of a fresh compaction fallback", 
       brokerSocketPath: defaultBrokerEndpoint(root),
       localToolsEnabled: true,
       solAvailable: true,
-      proAvailable: true,
+      extraHighAvailable: true, proAvailable: true,
     },
   };
   const worker = ChatGptBrowserWorker.forProvider(provider);
@@ -1367,7 +1377,7 @@ test("a timed-out fresh compaction retains its owner until helper cleanup comple
       brokerSocketPath: defaultBrokerEndpoint(root),
       localToolsEnabled: true,
       solAvailable: true,
-      proAvailable: true,
+      extraHighAvailable: true, proAvailable: true,
       turnTimeoutMs: 40,
     },
   };
@@ -1440,7 +1450,7 @@ test("structured compact rebuilds canonical context when its retained browser di
       brokerSocketPath: defaultBrokerEndpoint(root),
       localToolsEnabled: true,
       solAvailable: true,
-      proAvailable: true,
+      extraHighAvailable: true, proAvailable: true,
     },
   };
   const worker = ChatGptBrowserWorker.forProvider(provider);
@@ -1499,7 +1509,7 @@ test("a disappeared retained source cannot leave its fresh compaction rebuild pa
       brokerSocketPath: defaultBrokerEndpoint(root),
       localToolsEnabled: true,
       solAvailable: true,
-      proAvailable: true,
+      extraHighAvailable: true, proAvailable: true,
       turnTimeoutMs: 25,
     },
   };

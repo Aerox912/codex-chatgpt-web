@@ -355,6 +355,7 @@ export function createChatGptWebAdapter(
   const configuredCapabilities: ChatGptWebCapabilities = {
     localToolsEnabled: provider.chatgptWeb?.localToolsEnabled === true,
     solAvailable: provider.chatgptWeb?.solAvailable !== false,
+    extraHighAvailable: provider.chatgptWeb?.extraHighAvailable === true,
     proAvailable: provider.chatgptWeb?.proAvailable === true,
   };
   const manualInteraction = provider.chatgptWeb?.browserInteractionMode === "manual";
@@ -1098,7 +1099,7 @@ export function createChatGptWebAdapter(
             emit({ type: "text_delta", text: summary, phase: "final_answer" });
             emitBrowserCompletion(
               { type: "final", answer: summary },
-              estimateChatGptWebUsage(parsed, { answer: summary, reasoning: [] }, turnCapabilities),
+              estimateChatGptWebUsage(parsed, { answer: summary, reasoning: [] }, turnCapabilities, experimentalBiggerContext),
               emit,
             );
             chatGptWebTurnRetryPolicy.clear(retryKey);
@@ -1191,7 +1192,7 @@ export function createChatGptWebAdapter(
               session.setFinalEvents(session.roundEvents(roundKey));
               emitRoundBatch(buffer => emitBrowserCompletion(
                 settled,
-                estimateChatGptWebUsage(currentUsageInput(parsed), { answer: settled.answer, reasoning }, turnCapabilities),
+                estimateChatGptWebUsage(currentUsageInput(parsed), { answer: settled.answer, reasoning }, turnCapabilities, experimentalBiggerContext),
                 buffer,
               ));
               session.completeRound(roundKey);
@@ -1213,7 +1214,7 @@ export function createChatGptWebAdapter(
                   if (replay.length === 0) emitRoundEvents(session.eventsForOutstandingReplay());
                   emitRoundBatch(buffer => emitToolBatch(
                     outstanding,
-                    estimateChatGptWebUsage(currentUsageInput(parsed), { reasoning, toolRequests: outstanding }, turnCapabilities),
+                    estimateChatGptWebUsage(currentUsageInput(parsed), { reasoning, toolRequests: outstanding }, turnCapabilities, experimentalBiggerContext),
                     buffer,
                   ));
                   session.completeRound(roundKey);
@@ -1297,7 +1298,7 @@ export function createChatGptWebAdapter(
                 }
                 emitRoundBatch(buffer => emitBrowserCompletion(
                   completedOutcome,
-                  estimateChatGptWebUsage(currentUsageInput(parsed), { answer: completedOutcome.answer, reasoning: roundReasoning }, turnCapabilities),
+                  estimateChatGptWebUsage(currentUsageInput(parsed), { answer: completedOutcome.answer, reasoning: roundReasoning }, turnCapabilities, experimentalBiggerContext),
                   buffer,
                 ));
                 session.completeRound(roundKey);
@@ -1355,7 +1356,7 @@ export function createChatGptWebAdapter(
                 session.setOutstanding(next.requests, roundReasoning, session.roundEvents(roundKey));
                 emitRoundBatch(buffer => emitToolBatch(
                   next.requests,
-                  estimateChatGptWebUsage(currentUsageInput(parsed), { reasoning: roundReasoning, toolRequests: next.requests }, turnCapabilities),
+                  estimateChatGptWebUsage(currentUsageInput(parsed), { reasoning: roundReasoning, toolRequests: next.requests }, turnCapabilities, experimentalBiggerContext),
                   buffer,
                 ));
                 session.completeRound(roundKey);
