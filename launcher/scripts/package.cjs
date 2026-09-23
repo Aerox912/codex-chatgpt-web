@@ -37,6 +37,9 @@ const builderArgs = [
   "never",
 ];
 if (target === "--mac" && !env.CSC_LINK && !env.CSC_NAME) {
+  // PR builds still need an ad-hoc signature for archive verification. This
+  // branch uses no signing credential and never enables certificate signing.
+  env.CSC_FOR_PULL_REQUEST = "true";
   builderArgs.push("--config.mac.identity=-");
 }
 if (target === "--linux") {
