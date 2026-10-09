@@ -10,6 +10,7 @@ import { encodeCompactionSummary, SUMMARY_PREFIX } from "../src/responses/compac
 import { parseRequest } from "../src/responses/parser";
 import { ChatGptThreadEnvironmentStore } from "../src/adapters/chatgpt-web/thread-environment";
 import { TurnBroker } from "../src/adapters/chatgpt-web/turn-broker";
+import { defaultBrokerEndpoint } from "../src/config";
 import type { CodexParsedRequest, CodexTool } from "../src/types";
 
 const root = resolve(process.cwd());
@@ -1283,7 +1284,9 @@ describe("trusted Codex task environment continuity", () => {
       client_metadata: { "x-codex-turn-metadata": JSON.stringify({ thread_id: rolloutThreadId, turn_id: rolloutTurnId }) },
       input: body.input.slice(-1),
     } };
-    const broker = TurnBroker.forSocket(join(codexHome, "review.sock"));
+    const broker = TurnBroker.forSocket(process.platform === "win32"
+      ? defaultBrokerEndpoint(codexHome)
+      : join(codexHome, "review.sock"));
     try {
       for (const enabled of [true, false]) {
         writeRollout(enabled);
