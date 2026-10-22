@@ -26,7 +26,7 @@ async function runCli(args: string[], env: Record<string, string | undefined>) {
   return { exitCode, stdout, stderr };
 }
 
-test("production and DEV setup reject the removed connector-name option before configuration", async () => {
+test("production and DEV setup reject retired options before configuration", async () => {
   const root = mkdtempSync(join(tmpdir(), "codex-chatgpt-web-fixed-connector-"));
   try {
     const env = {
@@ -36,16 +36,21 @@ test("production and DEV setup reject the removed connector-name option before c
       CODEX_CHATGPT_WEB_DEV_HOME: join(root, "dev"),
     };
     for (const command of [["setup"], ["dev", "setup"]]) {
-      const result = await runCli([
-        ...command, "--browser-only", "--app-name", "Other Connector", "--acknowledge-unofficial",
-      ], env);
-      expect(result.exitCode).toBe(1);
-      expect(result.stderr).toMatch(/Unknown.*arguments: --app-name Other Connector/);
+      for (const option of [["--app-name", "Other Connector"], ["--saved-chats"], ["--temporary-chats"]]) {
+        const result = await runCli([
+          ...command, "--browser-only", ...option, "--acknowledge-unofficial",
+        ], env);
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr).toMatch(/Unknown.*arguments:/);
+        expect(result.stderr).toContain(option.join(" "));
+      }
     }
     expect(existsSync(join(root, "app", "config.json"))).toBeFalse();
     expect(existsSync(join(root, "dev", "config.json"))).toBeFalse();
     const help = await runCli(["--help"], env);
     expect(help.stdout).not.toContain("--app-name");
+    expect(help.stdout).not.toContain("--saved-chats");
+    expect(help.stdout).not.toContain("--temporary-chats");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -327,10 +332,10 @@ test("DEV browser-only setup persists only the isolated harness profile", async 
     response.writeHead(200, { "content-type": "application/json" });
     response.end(JSON.stringify({
       authenticated: true,
-      temporary: true,
+      newChat: true,
       solAvailable: true,
       extraHighAvailable: false, proAvailable: false,
-      url: "https://chatgpt.com/?temporary-chat=true",
+      url: "https://chatgpt.com/",
     }));
   });
   await new Promise<void>((resolveListen, rejectListen) => {

@@ -151,7 +151,7 @@ Full 모드를 활성화하기 전에 전체 [아키텍처](docs/architecture.md
 [보안 모델](docs/security-model.md)을 읽어보세요. 취약점은 [SECURITY.md](SECURITY.md)를 통해
 보고해 주세요.
 
-Temporary Chat은 [ChatGPT의 개인정보 보호 모드](https://help.openai.com/en/articles/8914046-temporary-chat-faq)이며, 프롬프트는 여전히 OpenAI에서 처리됩니다.
+작업에는 항상 일반 채팅을 사용하며 대화는 ChatGPT 기록에 남습니다. 프롬프트는 OpenAI에서 처리됩니다.
 
 검증 범위: [release validation](docs/release-validation.md).
 

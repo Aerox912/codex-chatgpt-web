@@ -1823,17 +1823,6 @@ function SettingsSurface({
       setBusy(false);
     }
   };
-  const setUseSavedChats = async (enabled: boolean) => {
-    setBusy(true);
-    setError(null);
-    try {
-      updateState(await api!.setUseSavedChats(enabled));
-    } catch (cause) {
-      setError(messageOf(cause));
-    } finally {
-      setBusy(false);
-    }
-  };
   const setInteractionMode = async (mode: BrowserInteractionMode) => {
     setBusy(true);
     setError(null);
@@ -1967,13 +1956,6 @@ function SettingsSurface({
             checked={snapshot.state.browserInteractionMode !== "manual" && snapshot.state.autoApproveToolCalls}
             disabled={busy || snapshot.state.browserInteractionMode === "manual" || !snapshot.state.coreSetupComplete}
             onChange={(checked) => void setAutoApproveToolCalls(checked)}
-          />
-        </SettingRow>
-        <SettingRow body={copy.savedChatsBody} label={copy.savedChats}>
-          <Switch
-            checked={snapshot.state.useSavedChats}
-            disabled={busy || snapshot.state.coreSetupComplete !== true}
-            onChange={(checked) => void setUseSavedChats(checked)}
           />
         </SettingRow>
         <SettingRow body={copy.chooseLanguageHint} label={copy.language}>
@@ -2794,8 +2776,8 @@ function FatalMessage({ message }: { message: string }) {
 
 function browserTabTitleFromTitle(value: string | undefined, copy: Copy): string {
   const title = value?.trim();
-  if (!title || title === "about:blank" || title.includes("codex-web-gpt-browser-host")) return copy.temporaryChat;
-  return title.replace(/\s*[|–-]\s*ChatGPT\s*$/i, "") || copy.temporaryChat;
+  if (!title || title === "about:blank" || title.includes("codex-web-gpt-browser-host")) return copy.newChat;
+  return title.replace(/\s*[|–-]\s*ChatGPT\s*$/i, "") || copy.newChat;
 }
 
 function browserTabTone(status: BrowserState["tabs"][number]["status"]): "idle" | "ready" | "busy" | "error" {
@@ -2809,9 +2791,6 @@ function formatBrowserAddress(url: string | undefined, copy: Copy): string {
   if (!url || url.startsWith("about:blank")) return copy.browserAddress;
   try {
     const parsed = new URL(url);
-    if (parsed.hostname === "chatgpt.com" && parsed.searchParams.get("temporary-chat") === "true") {
-      return `chatgpt.com  /  ${copy.temporaryChat}`;
-    }
     return `${parsed.hostname}${parsed.pathname === "/" ? "" : parsed.pathname}`;
   } catch {
     return copy.browserAddress;
