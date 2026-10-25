@@ -137,7 +137,7 @@ const en = {
   mcpStepTwo: "Connect the local harness",
   mcpStepTwoBody: "Paste the Tunnel ID and API key. The tunnel must belong to the same OpenAI account that will use the ChatGPT plugin. The key stays in private local storage and is never written to launcher logs.",
   mcpStepTwoHint: "You can add the MCP connector in ChatGPT only after this step succeeds and the tunnel is running.",
-  mcpCatalogRequired: "Connect harness is unavailable until the Codex models are installed and verified. Return to Setup, click Install models, restart Codex once, and wait for the model catalog check to complete.",
+  mcpSetupRequired: "Install the Codex integration in Setup before connecting the harness. You can connect MCP while Codex refreshes its model list.",
   tunnelId: "Tunnel ID",
   runtimeKey: "API key (not Admin key)",
   connect: "Connect harness",
@@ -156,6 +156,9 @@ const en = {
   verifyRuntime: "Verify runtime",
   checkingChatGptConnector: "Checking ChatGPT connector",
   doctorProxyHealthy: "Responses proxy is healthy on {endpoint}",
+  doctorCatalogPending: "This runtime has not observed a completed Codex model-list request yet",
+  doctorCatalogReady: "Codex's latest model-list request succeeded",
+  doctorCatalogFailed: "Codex's latest model-list request failed; the local runtime is reachable",
   doctorTunnelBinaryInstalled: "Pinned openai/tunnel-client binary is installed",
   doctorTunnelKeyStored: "Tunnel runtime key is stored privately",
   doctorTunnelRuntimeOwned: "Launcher owns the tunnel runtime",
@@ -371,7 +374,7 @@ const zh: Record<keyof typeof en, string> = {
   mcpStepTwo: "连接本地 Harness",
   mcpStepTwoBody: "粘贴 Tunnel ID 和 API key。Tunnel 必须属于将使用该 ChatGPT 插件的同一 OpenAI 账户。密钥只保存在本机私有存储中，绝不会写入启动器日志。",
   mcpStepTwoHint: "只有此步骤成功且 Tunnel 正在运行后，才能在 ChatGPT 中添加 MCP 连接器。",
-  mcpCatalogRequired: "在 Codex 模型安装并验证完成前，无法连接 Harness。请返回“设置”，点击“安装模型”，重启一次 Codex，并等待模型列表验证完成。",
+  mcpSetupRequired: "请先在“设置”中安装 Codex 集成，再连接 Harness。Codex 刷新模型列表期间也可以连接 MCP。",
   tunnelId: "Tunnel ID",
   runtimeKey: "API key（不是 Admin key）",
   connect: "连接 Harness",
@@ -390,6 +393,9 @@ const zh: Record<keyof typeof en, string> = {
   verifyRuntime: "验证运行时",
   checkingChatGptConnector: "正在检查 ChatGPT 连接器",
   doctorProxyHealthy: "Responses 代理在 {endpoint} 上运行正常",
+  doctorCatalogPending: "当前运行环境尚未收到已完成的 Codex 模型列表请求",
+  doctorCatalogReady: "Codex 最近一次模型列表请求成功",
+  doctorCatalogFailed: "Codex 最近一次模型列表请求失败；本地运行环境可以连接",
   doctorTunnelBinaryInstalled: "已安装固定版本的 openai/tunnel-client 二进制文件",
   doctorTunnelKeyStored: "隧道运行时密钥已安全存储",
   doctorTunnelRuntimeOwned: "启动器正在管理隧道运行时",
@@ -605,7 +611,7 @@ const ja: Record<keyof typeof en, string> = {
   mcpStepTwo: "ローカルハーネスを接続",
   mcpStepTwoBody: "Tunnel ID と API キーを貼り付けます。トンネルは、ChatGPT プラグインを使用する OpenAI アカウントと同じアカウントに属している必要があります。キーは非公開のローカルストレージに保存され、ランチャーログには記録されません。",
   mcpStepTwoHint: "この手順が成功し、トンネルが実行中になってから ChatGPT に MCP コネクタを追加できます。",
-  mcpCatalogRequired: "Codex モデルのインストールと検証が完了するまでハーネスを接続できません。セットアップに戻り、［モデルをインストール］を押して Codex を一度再起動し、モデルカタログの確認が完了するまで待ってください。",
+  mcpSetupRequired: "ハーネスを接続する前に、セットアップで Codex 連携をインストールしてください。Codex がモデル一覧を更新している間も MCP を接続できます。",
   tunnelId: "Tunnel ID",
   runtimeKey: "API キー（Admin キーではありません）",
   connect: "ハーネスを接続",
@@ -624,6 +630,9 @@ const ja: Record<keyof typeof en, string> = {
   verifyRuntime: "ランタイムを検証",
   checkingChatGptConnector: "ChatGPT コネクタを確認中",
   doctorProxyHealthy: "Responses プロキシは {endpoint} で正常に動作しています",
+  doctorCatalogPending: "このランタイムでは、Codex のモデル一覧リクエストの完了がまだ確認されていません",
+  doctorCatalogReady: "Codex の最新のモデル一覧リクエストは成功しました",
+  doctorCatalogFailed: "Codex の最新のモデル一覧リクエストは失敗しました。ローカルランタイムには接続できます",
   doctorTunnelBinaryInstalled: "固定バージョンの openai/tunnel-client バイナリがインストールされています",
   doctorTunnelKeyStored: "トンネルのランタイムキーは安全に保存されています",
   doctorTunnelRuntimeOwned: "ランチャーがトンネルランタイムを管理しています",
@@ -839,7 +848,7 @@ const ko: Record<keyof typeof en, string> = {
   mcpStepTwo: "로컬 하네스 연결",
   mcpStepTwoBody: "Tunnel ID와 API 키를 붙여넣으세요. 터널은 ChatGPT 플러그인을 사용할 OpenAI 계정과 동일한 계정에 속해야 합니다. 키는 비공개 로컬 저장소에만 저장되며 런처 로그에는 기록되지 않습니다.",
   mcpStepTwoHint: "이 단계가 성공하고 터널이 실행 중이어야 ChatGPT에 MCP 커넥터를 추가할 수 있습니다.",
-  mcpCatalogRequired: "Codex 모델의 설치 및 검증이 완료될 때까지 하네스를 연결할 수 없습니다. 설정으로 돌아가 모델 설치를 클릭하고 Codex를 한 번 다시 시작한 다음 모델 카탈로그 확인이 완료될 때까지 기다리세요.",
+  mcpSetupRequired: "하네스를 연결하기 전에 설정에서 Codex 통합을 설치하세요. Codex가 모델 목록을 새로고침하는 동안에도 MCP를 연결할 수 있습니다.",
   tunnelId: "Tunnel ID",
   runtimeKey: "API 키 (Admin 키 아님)",
   connect: "하네스 연결",
@@ -858,6 +867,9 @@ const ko: Record<keyof typeof en, string> = {
   verifyRuntime: "런타임 검증",
   checkingChatGptConnector: "ChatGPT 커넥터 확인 중",
   doctorProxyHealthy: "Responses 프록시가 {endpoint}에서 정상적으로 작동 중입니다",
+  doctorCatalogPending: "이 런타임에서 완료된 Codex 모델 목록 요청이 아직 확인되지 않았습니다",
+  doctorCatalogReady: "Codex의 최근 모델 목록 요청이 성공했습니다",
+  doctorCatalogFailed: "Codex의 최근 모델 목록 요청이 실패했습니다. 로컬 런타임에는 연결할 수 있습니다",
   doctorTunnelBinaryInstalled: "고정 버전의 openai/tunnel-client 바이너리가 설치되어 있습니다",
   doctorTunnelKeyStored: "터널 런타임 키가 비공개로 저장되어 있습니다",
   doctorTunnelRuntimeOwned: "런처가 터널 런타임을 관리하고 있습니다",
@@ -1073,7 +1085,7 @@ const zhTW: Record<keyof typeof en, string> = {
   mcpStepTwo: "連線本機 Harness",
   mcpStepTwoBody: "貼上 Tunnel ID 與 API key。Tunnel 必須屬於將使用該 ChatGPT 外掛的同一個 OpenAI 帳戶。金鑰只保存在本機私人儲存中，絕不會寫入啟動器日誌。",
   mcpStepTwoHint: "只有此步驟成功且 Tunnel 正在執行後，才能在 ChatGPT 中新增 MCP 連接器。",
-  mcpCatalogRequired: "在 Codex 模型安裝並驗證完成前，無法連線 Harness。請返回「設定」，點選「安裝模型」，重新啟動一次 Codex，並等待模型清單驗證完成。",
+  mcpSetupRequired: "請先在「設定」中安裝 Codex 整合，再連線 Harness。Codex 重新整理模型清單期間也可以連線 MCP。",
   tunnelId: "Tunnel ID",
   runtimeKey: "API key（不是 Admin key）",
   connect: "連線 Harness",
@@ -1092,6 +1104,9 @@ const zhTW: Record<keyof typeof en, string> = {
   verifyRuntime: "驗證執行階段",
   checkingChatGptConnector: "正在檢查 ChatGPT 連接器",
   doctorProxyHealthy: "Responses 代理在 {endpoint} 上運作正常",
+  doctorCatalogPending: "目前執行環境尚未收到已完成的 Codex 模型清單請求",
+  doctorCatalogReady: "Codex 最近一次模型清單請求成功",
+  doctorCatalogFailed: "Codex 最近一次模型清單請求失敗；本機執行環境可以連線",
   doctorTunnelBinaryInstalled: "已安裝固定版本的 openai/tunnel-client 二進位檔",
   doctorTunnelKeyStored: "隧道執行階段金鑰已安全儲存",
   doctorTunnelRuntimeOwned: "啟動器正在管理隧道執行階段",
@@ -1210,6 +1225,11 @@ export function localizeRuntimeMessage(
       .replace("{pid}", () => match[2]);
   }
   if (checkId === "codex" && message === "Codex native model route is installed") return copy.doctorCodexInstalled;
+  if (checkId === "model-catalog") {
+    if (message === "This runtime has not observed a completed Codex model-list request yet") return copy.doctorCatalogPending;
+    if (message === "Codex's latest model-list request succeeded") return copy.doctorCatalogReady;
+    if (message === "Codex's latest model-list request failed; the local runtime is reachable") return copy.doctorCatalogFailed;
+  }
   if (checkId === "service" && message === "Launcher owns the background runtime") return copy.doctorRuntimeOwned;
   if (checkId === "service" && message === "macOS background service is loaded") return copy.doctorMacServiceLoaded;
   if (checkId === "chrome") {

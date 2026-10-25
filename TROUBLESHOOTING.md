@@ -30,16 +30,22 @@ The safe-log export is separate and does not include these browser checkpoint fi
 
 ## Models do not appear, or setup remains on step 3
 
-**Install models** updates the Codex route, but a running Codex process keeps its old model catalog.
-Fully quit every Codex Desktop window and Codex CLI process, then reopen Codex while the launcher is
-still running. The launcher should move from **Restart Codex** to a verified catalog state.
+**Install models** updates the Codex route. Once installation finishes, step 3 is complete and you
+can connect MCP. The launcher checks model loading separately; waiting for that check does not
+prevent MCP setup.
+
+A running Codex process can keep its old model catalog. If **(Web)** models are missing, fully quit
+every Codex Desktop window and Codex CLI process, then reopen Codex while the launcher is still
+running. If a **(Web)** model already answers successfully, you do not need to reinstall just because
+the launcher has not observed a new model-list request.
 
 If the models still do not appear:
 
 - confirm that **Codex itself** uses ChatGPT sign-in; signing into the launcher's browser is separate.
   An API-key or signed-out Codex session can show only its built-in catalog without contacting the bridge;
 - open **Setup → Install into Codex** and click **Reinstall** once;
-- check **Settings → Run doctor**;
+- check **Settings → Run doctor**; a healthy local proxy does not mean the upstream model-list
+  request succeeded. Doctor reports its latest result separately;
 - make sure another Codex wrapper is not replacing the route; and
 - export a safe log after the failed catalog check.
 
