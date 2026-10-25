@@ -34,7 +34,11 @@ export function parseChatGptModelAnnouncement(text: string): {
     .replace(/^((?:GPT[-\s]?)?(\d+(?:\.\d+)?)\s+(?:Sol|Astra))\s+(?:GPT[-\s]?)?\2\s+/i, "$1 ");
   const match = /^(?:GPT[-\s]?)?(\d+(?:\.\d+)?)(?:\s+(Sol|Astra))?\s+([^\p{P}]+)(?:\p{P}|$)/iu.exec(normalized);
   if (!match) return undefined;
-  return { version: match[1]!, ...(match[2] ? { name: match[2].toLowerCase() } : {}), mode: match[3]!.trim() };
+  const mode = match[3]!.trim();
+  // Observed zh-CN picker labels (#911). Translate only complete effort labels;
+  // unknown labels still fail the exact model/effort check.
+  const canonicalMode = mode === "即时" ? "instant" : mode === "中" ? "medium" : mode === "高" ? "high" : mode;
+  return { version: match[1]!, ...(match[2] ? { name: match[2].toLowerCase() } : {}), mode: canonicalMode };
 }
 
 /** Read model evidence only from the slider's own active picker. */
