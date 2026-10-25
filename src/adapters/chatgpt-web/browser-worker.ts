@@ -144,7 +144,11 @@ export const CHATGPT_RESPONSE_DOM_GRACE_MS = 60_000;
  */
 export const CHATGPT_MULTIPART_RESPONSE_DOM_GRACE_MS = 180_000;
 export const CHATGPT_EMPTY_RESPONSE_GRACE_MS = 10_000;
-export const CHATGPT_COMPLETION_ACTION_GRACE_MS = 60_000;
+// #885 includes a final arriving 125 seconds after Stop and other progress disappeared.
+// Absence of those controls is an uncertain idle state, not a completed or failed response.
+// Use the same bounded inactivity window as stalled MCP work; explicit errors, empty
+// completed responses and vanished DOM retain their own shorter checks.
+export const CHATGPT_COMPLETION_ACTION_GRACE_MS = 10 * 60_000;
 export const CHATGPT_COMPLETION_SETTLE_MS = 2_000;
 export const CHATGPT_TOOL_CONFIRMATION_TIMEOUT_MS = 60_000;
 export const MAX_CHATGPT_CONNECTOR_TRIGGER_ATTEMPTS = 3;
@@ -1381,9 +1385,7 @@ export class ChatGptTurnDomHealthTracker {
       || this.missingCompletionAction?.activityText !== state.activityText) {
       this.missingCompletionAction = { text: state.currentText, activityText: state.activityText, since: now };
     } else if (now - this.missingCompletionAction.since >= this.missingCompletionActionMs) {
-      return state.currentText.length > 0
-        ? "ChatGPT stopped generating but did not expose its completed-turn action; the ChatGPT DOM may have changed"
-        : "ChatGPT stopped showing generation or tool activity without a final answer. Check the ChatGPT tab for an error before retrying.";
+      return `ChatGPT has shown no new response activity for ${this.missingCompletionActionMs / 1_000} seconds without a final answer. Check the ChatGPT tab before retrying.`;
     }
     return undefined;
   }
@@ -1406,7 +1408,7 @@ export const MAX_CHATGPT_INTERNAL_OBSERVATION_FAULTS = 8;
  * bounds the silence since the last recorded activity rather than the turn's total duration, so a
  * long turn that keeps calling tools is never penalised for taking a long time.
  */
-export const CHATGPT_EXTERNAL_PROGRESS_STALL_CEILING_MS = 10 * 60_000;
+export const CHATGPT_EXTERNAL_PROGRESS_STALL_CEILING_MS = CHATGPT_COMPLETION_ACTION_GRACE_MS;
 
 /** Tolerated clock difference between the recording daemon and the observing helper process. */
 export const CHATGPT_EXTERNAL_PROGRESS_CLOCK_SKEW_MS = 5_000;
@@ -5035,6 +5037,17 @@ export class ChatGptBrowserWorker {
       console.info(
         `[chatgpt-web] browser turn ${turn.traceId} opened (transport=${prepared.multipart ? `multipart-${prepared.multipart.parts.length}` : "inline"}, maxMessageChars=${maxMessageChars}, estimatedInputTokens=${estimatedInputTokens}, images=${prepared.images.length}, compactionTrimmedMessages=${prepared.trimmedCompactionMessages ?? 0})`,
       );
+      if (prepared.contextTokenBreakdown) {
+        // Per-record counts are diagnostic, not additive usage: the full estimate also owns
+        // transport framing, acknowledgements, attachments, and the platform reserve.
+        console.info(`[chatgpt-web] context_token_breakdown ${JSON.stringify({
+          traceId: turn.traceId,
+          scope: "submitted",
+          retainedConversation: reuseConversation,
+          estimatedInputTokens,
+          byRole: prepared.contextTokenBreakdown,
+        })}`);
+      }
       if (multipartStages) {
         console.info(
           `[chatgpt-web] browser turn ${turn.traceId} multipart staging effort=${stagingMode.effort}`
