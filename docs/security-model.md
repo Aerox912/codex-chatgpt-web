@@ -18,6 +18,10 @@ created. Repository contents, tool output, websites, and prompt text are untrust
    and source instruction to its native thread, turn, model and effort. A freshly emitted environment
    claim without a new human message must match that turn's canonical rollout in cwd, roots and
    sandbox policy; the checkpoint alone does not grant filesystem authority.
+   Under native Full Access, a managed worktree may be outside the retained project roots.
+   That case requires the current rollout to authenticate the cwd, unrestricted permissions,
+   and the exact roots recorded in `turn_context` or `session_meta.runtime_workspace_roots`.
+   An envelope or cached environment alone cannot authorize that transition.
 3. It creates a random, turn-scoped token and embeds it in that one ChatGPT browser prompt.
 4. Every Codex Native action presents that same turn token. The MCP handler idempotently claims an
    internal binding plus a request-scoped activity lease and immediately dispatches the requested
