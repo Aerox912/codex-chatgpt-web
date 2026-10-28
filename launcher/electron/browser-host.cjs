@@ -430,7 +430,8 @@ class BrowserHost {
         backgroundThrottling: true,
       },
     });
-    window.contentView.addChildView(this.view);
+    // Browser surfaces stay below native launcher notices, including new tabs.
+    window.contentView.addChildView(this.view, 0);
     this.windowVisibilityListener = () => this.syncViewVisibility();
     for (const event of WINDOW_VISIBILITY_EVENTS) {
       this.window.on(event, this.windowVisibilityListener);
@@ -617,7 +618,7 @@ class BrowserHost {
     };
     this.turnTabs.set(id, tab);
     this.syncPowerSaveBlocker();
-    this.window.contentView.addChildView(view);
+    this.window.contentView.addChildView(view, 0);
     this.presentTurnView(tab, false);
     view.webContents.setZoomFactor(this.state.zoomFactor);
     this.bindShellZoomShortcuts(view.webContents);
@@ -711,7 +712,7 @@ class BrowserHost {
       lastHeartbeatAt: Date.now(),
     };
     this.turnTabs.set(id, tab);
-    this.window.contentView.addChildView(view);
+    this.window.contentView.addChildView(view, 0);
     this.presentTurnView(tab, true);
     view.webContents.setZoomFactor(this.state.zoomFactor);
     this.bindShellZoomShortcuts(view.webContents);
@@ -1906,7 +1907,7 @@ class BrowserHost {
     const authView = new WebContentsView({ webContents: options.webContents });
     this.authView = authView;
     this.authNavigationError = null;
-    this.window.contentView.addChildView(authView);
+    this.window.contentView.addChildView(authView, 0);
     authView.setBounds(this.bounds);
     authView.setVisible(false);
     authView.webContents.setZoomFactor(this.state.zoomFactor);
