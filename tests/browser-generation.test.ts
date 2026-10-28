@@ -170,7 +170,7 @@ test.skipIf(!process.env.LAUNCHER_TEST_ELECTRON)("captured Think toggles indepen
   });
   try {
     const page = await app.firstWindow();
-    for (const fixture of ["chatgpt-composer-think.html", "chatgpt-composer-think-2026-10-11.html"]) {
+    for (const fixture of ["chatgpt-composer-think.html", "chatgpt-composer-think-2026-10-11.html", "chatgpt-composer-think-2026-10-28.html"]) {
       const captured = readFileSync(new URL(`./fixtures/${fixture}`, import.meta.url), "utf8");
       for (const label of ["Think", "思考", "Думать", "생각하기", "التفكير", "Unknown future translation"]) {
         await page.setContent(`<form data-chatgpt-composer><div id="prompt-textarea" contenteditable="true"><span data-id="plugin:fixture" data-keyword="Codex Native2" contenteditable="false">Codex Native2</span></div>
