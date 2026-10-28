@@ -40,6 +40,26 @@ test("retired saved-chat settings are discarded while other launcher settings su
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+test("UTF-8 settings keep explicit choices with or without a byte order mark", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-utf8-state-"));
+  const file = path.join(root, "state.json");
+  try {
+    const expected = createStateStore(file).update({
+      coreSetupComplete: true,
+      autoStart: false,
+      useTemporaryChats: false,
+      browserInteractionMode: "manual",
+      browserSmokeVersion: "6.1.14\uFEFF-test",
+    });
+    for (const prefix of ["", "\uFEFF"]) {
+      const contents = prefix + JSON.stringify(expected);
+      fs.writeFileSync(file, contents);
+      assert.deepEqual(createStateStore(file).read(), expected);
+      assert.equal(fs.readFileSync(file, "utf8"), contents);
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test("launcher state persists onboarding, language, and autostart atomically", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-web-gpt-launcher-state-"));
   const file = path.join(root, "state.json");
