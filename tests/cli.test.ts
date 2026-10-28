@@ -47,11 +47,16 @@ test("doctor distinguishes a healthy local proxy from failed, pending and recove
   config.port = server.port!;
   mkdirSync(appHome, { recursive: true });
   writeFileSync(join(appHome, "config.json"), JSON.stringify(config));
+  mkdirSync(join(root, "codex"), { recursive: true });
+  const codexSettings = 'model="chatgpt-web/gpt-6-sol"\nmodel_auto_compact_token_limit=150000\n';
+  writeFileSync(join(root, "codex", "config.toml"), codexSettings);
   const env = { ...process.env, CODEX_CHATGPT_WEB_HOME: appHome, CODEX_HOME: join(root, "codex") };
   try {
     const check = async () => {
       const report = JSON.parse((await runCli(["doctor", "--json"], env)).stdout);
       expect(report.checks.find((c: any) => c.id === "proxy").status).toBe("ok");
+      expect(report.checks.find((c: any) => c.id === "codex-compaction").status).toBe("warning");
+      expect(readFileSync(join(root, "codex", "config.toml"), "utf8")).toBe(codexSettings);
       return report.checks.find((c: any) => c.id === "model-catalog");
     };
     expect(await check()).toMatchObject({ status: "error", detail: "HTTP 502; transport; ConnectionRefused" });
