@@ -1893,7 +1893,7 @@ export function resolveBrowserConfig(provider: CodexProviderConfig): ResolvedBro
     ...(turnTimeoutMs !== undefined ? { turnTimeoutMs } : {}),
     headed: configured.headed !== false,
     autoApproveToolCalls: configured.autoApproveToolCalls === true,
-    useTemporaryChats: configured.useTemporaryChats === true,
+    useTemporaryChats: configured.useTemporaryChats !== false,
   };
 }
 

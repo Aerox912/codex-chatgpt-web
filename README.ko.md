@@ -151,7 +151,7 @@ Full 모드를 활성화하기 전에 전체 [아키텍처](docs/architecture.md
 [보안 모델](docs/security-model.md)을 읽어보세요. 취약점은 [SECURITY.md](SECURITY.md)를 통해
 보고해 주세요.
 
-작업에는 기본적으로 일반 채팅을 사용하며 대화는 ChatGPT 기록에 남습니다. 설정에서 임시 채팅을 켤 수 있습니다. 커넥터를 사용할 수 없으면 끄세요. 프롬프트는 계속 OpenAI에서 처리됩니다.
+작업에는 기본적으로 임시 채팅을 사용하며 ChatGPT 기록에 남지 않습니다. 일반 채팅을 사용하거나 커넥터를 사용할 수 없는 경우 설정에서 끄세요. 프롬프트는 계속 OpenAI에서 처리됩니다.
 
 검증 범위: [release validation](docs/release-validation.md).
 

@@ -309,17 +309,17 @@ test("retired chat preferences are removed without changing current configuratio
   expect(() => loadConfig()).toThrow("experimentalFreshConversationPerTurn");
 });
 
-test("Temporary Chat requires an explicit opt-in and survives config reloads in both interaction modes", () => {
+test("Temporary Chat defaults on and preserves an explicit opt-out across config reloads", () => {
   const root = join(tmpdir(), `codex-temporary-config-${process.pid}-${Date.now()}`);
   roots.push(root);
   process.env.CODEX_CHATGPT_WEB_HOME = root;
   mkdirSync(root, { recursive: true });
   const path = join(root, "config.json");
   const original: Record<string, unknown> = { ...defaultConfig("browser-only"), useSavedChats: false };
-  expect(original.useTemporaryChats).toBe(false);
+  expect(original.useTemporaryChats).toBe(true);
   delete original.useTemporaryChats;
   writeFileSync(path, JSON.stringify(original));
-  expect(loadConfig().useTemporaryChats).toBe(false);
+  expect(loadConfig().useTemporaryChats).toBe(true);
   for (const useTemporaryChats of [true, false]) {
     writeFileSync(path, JSON.stringify({ ...original, useTemporaryChats }));
     for (const loaded of [loadConfig(), loadConfigForSetup()]) {

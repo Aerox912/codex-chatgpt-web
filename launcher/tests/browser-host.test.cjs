@@ -642,6 +642,7 @@ test("session inspection delegates navigation and capability detection to the sh
   assert.equal(calls[0].operation, "refresh");
   assert.equal(calls[1].operation, "inspect");
   assert.equal(calls[1].appName, "Codex Native2");
+  assert.equal(calls[1].useTemporaryChats, false, "account inspection keeps its ordinary sign-in surface");
   assert.deepEqual(calls[1].payload, { detectCapabilities: true });
 });
 
@@ -4206,7 +4207,7 @@ test("off-on-off fresh conversation changes retire completed history before it c
       conversationKey: key, connectorIdentity: "Codex Native2", connectorBound: true };
     const manual = { id: "manual-chat", status: "ready", interactionMode: "manual", conversationKey: "b".repeat(64) };
     const state = { experimentalFreshConversationPerTurn: false, useTemporaryChats: false };
-    const config = { experimentalFreshConversationPerTurn: false };
+    const config = { experimentalFreshConversationPerTurn: false, useTemporaryChats: false };
     let handler, failSetup = true, commit;
     const removed = [];
     const fixture = Object.assign(Object.create(BrowserHost.prototype), {

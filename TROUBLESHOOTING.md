@@ -207,10 +207,10 @@ are lost in long Free-account chats, turn Bigger Context off and restart Codex.
 
 ## Personalization or connector controls are not found
 
-Ordinary chats are the default. If **Settings → Temporary Chat** is enabled and your connector is
+**Settings → Temporary Chat** is on by default. If your connector is
 missing there, finish active tasks, turn that setting off, and retry. Connector availability can
 differ between accounts and chat modes. The launcher does not silently change modes. The retired
-saved-chat setting does not enable Temporary Chat. ChatGPT memory and custom instructions may
+saved-chat setting does not override the current preference. ChatGPT memory and custom instructions may
 apply in either mode.
 
 In ChatGPT, open **Settings → General → Language** and choose **English** explicitly, then reload

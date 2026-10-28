@@ -673,12 +673,12 @@ test("changing Bigger Context retires ready automatic chats before a previous mo
   });
   vm.runInContext(electronMain.slice(electronMain.indexOf("function syncBrowserPreferences("), electronMain.indexOf("function registerIpc(")), context);
   const store = { read: () => state, update: patch => Object.assign(state, patch) };
-  context.syncBrowserPreferences(store, { solAvailable: false, experimentalBiggerContext: true });
+  context.syncBrowserPreferences(store, { solAvailable: false, experimentalBiggerContext: true, useTemporaryChats: false });
   assert.deepEqual(released, ["old-luna"]);
   assert.equal(state.experimentalBiggerContext, true);
   assert.equal(tabs.has("active"), true);
   assert.equal(tabs.has("manual"), true);
-  context.syncBrowserPreferences(store, { solAvailable: false, experimentalBiggerContext: true });
+  context.syncBrowserPreferences(store, { solAvailable: false, experimentalBiggerContext: true, useTemporaryChats: false });
   assert.deepEqual(released, ["old-luna"]);
 });
 

@@ -331,7 +331,7 @@ class BrowserHost {
     showWindow = () => {},
     clipboardApi = clipboard,
     getBrowserInteractionMode = () => "automatic",
-    getUseTemporaryChats = () => false,
+    getUseTemporaryChats = () => true,
   }) {
     if (typeof getConnectorName !== "function") {
       throw new Error("Browser host connector-name resolver is unavailable");
@@ -3180,6 +3180,7 @@ class BrowserHost {
       descriptorPath: this.descriptorPath,
       appName: connectorName,
       operation: "inspect",
+      useTemporaryChats: false,
       payload: { detectCapabilities },
       logger: this.logger,
     });
@@ -3206,6 +3207,7 @@ class BrowserHost {
         descriptorPath: this.descriptorPath,
         appName: this.connectorName(),
         operation: "limits",
+        useTemporaryChats: false,
         logger: this.logger,
       });
       const plan = result?.value;

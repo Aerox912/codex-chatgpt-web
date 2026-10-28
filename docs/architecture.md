@@ -34,7 +34,7 @@ launcher-owned codex-chatgpt-web daemon
   unpinned `chatgpt-web/pro`. They keep old tasks and cached selections working. The existing release
   upgrade reruns integration setup and invalidates the model cache; Codex must restart for the new
   picker. Native models and existing context/compaction budgets are preserved.
-- Sends the complete Codex context and image attachments to a fresh ChatGPT conversation (saved in ChatGPT history by default).
+- Sends the complete Codex context and image attachments to a fresh ChatGPT conversation (Temporary Chat by default).
 - Never starts the broker, tunnel, or MCP server.
 - Emits a nonfatal Codex commentary warning that local tools are unavailable for the selected model.
 
@@ -150,11 +150,12 @@ Top-level `model_context_window` raises only the proxied native rows' advertised
 Codex to apply its own configured context override without clamping. Routed ChatGPT Web models
 retain their measured adapter-owned limits.
 
-Automatic and Zero Risk task turns use ordinary saved conversations by default. The explicit
-`useTemporaryChats` preference (`setup --temporary-chats`; `--ordinary-chats` to disable) selects
-Temporary Chat for task turns, connector verification and smoke tests. Sign-in and account
+Automatic and Zero Risk task turns use Temporary Chat by default. The `useTemporaryChats`
+preference (`setup --temporary-chats`; `--ordinary-chats` to disable) selects the mode for task
+turns, connector verification and smoke tests. Sign-in and account
 inspection still use ordinary chats. The old `useSavedChats` preference is discarded and cannot
-enable the new option. Changing modes retires idle retained task surfaces after setup succeeds;
+override the new setting. An absent new setting defaults to true; an explicit false is preserved.
+Changing modes retires idle retained task surfaces after setup succeeds;
 the launcher refuses to change it during active browser work. This is independent of conversation
 reuse. Saved history does not authorize reopening an arbitrary ChatGPT conversation. Compaction
 still starts the next context epoch in a new chat. ChatGPT memory and custom instructions may apply
