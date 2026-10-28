@@ -146,7 +146,7 @@ codex-chatgpt-web subagents native
 启用完整模式前，请阅读完整的[架构说明](docs/architecture.md)和
 [安全模型](docs/security-model.md)。安全漏洞请通过 [SECURITY.md](SECURITY.md) 报告。
 
-任务始终使用普通聊天，对话会保留在 ChatGPT 历史记录中。提示词由 OpenAI 处理。
+任务默认使用普通聊天，对话会保留在 ChatGPT 历史记录中。可在设置中启用“临时聊天”；如果连接器不可用，请关闭此选项。提示词仍由 OpenAI 处理。
 
 验证范围：[发布验证](docs/release-validation.md)。
 

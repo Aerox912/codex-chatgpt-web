@@ -2,6 +2,9 @@ import type { Locator, Page } from "playwright-core";
 import type { ChatGptWebAccountCapabilities } from "./chatgpt-web-models";
 
 export const CHATGPT_NEW_CHAT_URL = "https://chatgpt.com/";
+export function chatGptNewChatUrl(useTemporaryChats = false): string {
+  return useTemporaryChats ? `${CHATGPT_NEW_CHAT_URL}?temporary-chat=true` : CHATGPT_NEW_CHAT_URL;
+}
 export const CHATGPT_COMPOSER_SELECTOR = [
   '[data-testid="prompt-textarea"]',
   "#prompt-textarea",
@@ -298,11 +301,11 @@ export async function assertAuthenticatedChatGptPage(page: Page): Promise<void> 
   }
 }
 
-export async function assertNewChatPage(page: Page): Promise<void> {
+export async function assertNewChatPage(page: Page, useTemporaryChats = false): Promise<void> {
   const url = new URL(page.url());
   const expected = new URL(CHATGPT_NEW_CHAT_URL);
   if (url.origin !== expected.origin || url.pathname !== expected.pathname
-    || url.searchParams.get("temporary-chat") === "true") {
+    || (url.searchParams.get("temporary-chat") === "true") !== useTemporaryChats) {
     throw new Error(`ChatGPT left the requested new chat surface (${page.url()})`);
   }
 }

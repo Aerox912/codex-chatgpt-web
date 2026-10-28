@@ -78,7 +78,7 @@ test("production and DEV setup reject retired options before configuration", asy
       CODEX_CHATGPT_WEB_DEV_HOME: join(root, "dev"),
     };
     for (const command of [["setup"], ["dev", "setup"]]) {
-      for (const option of [["--app-name", "Other Connector"], ["--saved-chats"], ["--temporary-chats"]]) {
+      for (const option of [["--app-name", "Other Connector"], ["--saved-chats"]]) {
         const result = await runCli([
           ...command, "--browser-only", ...option, "--acknowledge-unofficial",
         ], env);
@@ -92,7 +92,8 @@ test("production and DEV setup reject retired options before configuration", asy
     const help = await runCli(["--help"], env);
     expect(help.stdout).not.toContain("--app-name");
     expect(help.stdout).not.toContain("--saved-chats");
-    expect(help.stdout).not.toContain("--temporary-chats");
+    expect(help.stdout).toContain("--temporary-chats");
+    expect(help.stdout).toContain("--ordinary-chats");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -102,16 +103,18 @@ test("production and DEV setup reject conflicting conversation modes before conf
   const root = mkdtempSync(join(tmpdir(), "codex-web-conversation-flags-"));
   try {
     for (const command of [["setup"], ["dev", "setup"]]) {
-      const result = await runCli([
-        ...command, "--browser-only", "--fresh-conversation", "--retained-conversation",
-      ], {
-        ...process.env,
-        CODEX_HOME: join(root, "codex"),
-        CODEX_CHATGPT_WEB_HOME: join(root, "app"),
-        CODEX_CHATGPT_WEB_DEV_HOME: join(root, "dev"),
-      });
-      expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain("Choose --fresh-conversation or --retained-conversation");
+      for (const [enable, disable] of [["--fresh-conversation", "--retained-conversation"], ["--temporary-chats", "--ordinary-chats"]]) {
+        const result = await runCli([
+          ...command, "--browser-only", enable, disable,
+        ], {
+          ...process.env,
+          CODEX_HOME: join(root, "codex"),
+          CODEX_CHATGPT_WEB_HOME: join(root, "app"),
+          CODEX_CHATGPT_WEB_DEV_HOME: join(root, "dev"),
+        });
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr).toContain(`Choose ${enable} or ${disable}`);
+      }
     }
     expect(existsSync(join(root, "app", "config.json"))).toBeFalse();
     expect(existsSync(join(root, "dev", "config.json"))).toBeFalse();

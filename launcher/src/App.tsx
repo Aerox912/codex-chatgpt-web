@@ -1821,6 +1821,17 @@ function SettingsSurface({
       setBusy(false);
     }
   };
+  const setTemporaryChats = async (enabled: boolean) => {
+    setBusy(true);
+    setError(null);
+    try {
+      updateState(await api!.setTemporaryChats(enabled));
+    } catch (cause) {
+      setError(messageOf(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
   const setInteractionMode = async (mode: BrowserInteractionMode) => {
     setBusy(true);
     setError(null);
@@ -1954,6 +1965,13 @@ function SettingsSurface({
             checked={snapshot.state.browserInteractionMode !== "manual" && snapshot.state.autoApproveToolCalls}
             disabled={busy || snapshot.state.browserInteractionMode === "manual" || !snapshot.state.coreSetupComplete}
             onChange={(checked) => void setAutoApproveToolCalls(checked)}
+          />
+        </SettingRow>
+        <SettingRow body={copy.temporaryChatsBody} label={copy.temporaryChats}>
+          <Switch
+            checked={snapshot.state.useTemporaryChats}
+            disabled={busy || snapshot.state.coreSetupComplete !== true}
+            onChange={(checked) => void setTemporaryChats(checked)}
           />
         </SettingRow>
         <SettingRow body={copy.chooseLanguageHint} label={copy.language}>

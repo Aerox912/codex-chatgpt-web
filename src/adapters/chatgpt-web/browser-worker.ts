@@ -54,7 +54,7 @@ import { estimateCompiledChatGptWebInputTokens } from "./input-tokens";
 import {
   assertAuthenticatedChatGptPage,
   assertNewChatPage,
-  CHATGPT_NEW_CHAT_URL,
+  chatGptNewChatUrl,
   chatGptAssistantTurnSelector,
   chatGptTurnContainerSelector,
   CHATGPT_ASSISTANT_TURN_SELECTOR,
@@ -1112,6 +1112,7 @@ export interface ResolvedBrowserConfig {
   turnTimeoutMs?: number;
   headed: boolean;
   autoApproveToolCalls: boolean;
+  useTemporaryChats: boolean;
 }
 
 export function chatGptTurnIsComplete(state: {
@@ -1892,6 +1893,7 @@ export function resolveBrowserConfig(provider: CodexProviderConfig): ResolvedBro
     ...(turnTimeoutMs !== undefined ? { turnTimeoutMs } : {}),
     headed: configured.headed !== false,
     autoApproveToolCalls: configured.autoApproveToolCalls === true,
+    useTemporaryChats: configured.useTemporaryChats === true,
   };
 }
 
@@ -2491,7 +2493,7 @@ export class ChatGptBrowserWorker {
     );
   }
 
-  /** Prepare the same empty ordinary chat for tasks, sign-in and account inspection. */
+  /** Prepare and verify the explicitly selected new-chat surface. */
   private async prepareChatSurface(
     page: Page,
     captureDiagnostic?: (checkpoint: string) => Promise<void>,
@@ -2502,7 +2504,7 @@ export class ChatGptBrowserWorker {
     // connector is present in the catalog. Navigating again here destroys that freshly hydrated
     // document and made the first verification race a second SPA bootstrap. A leased turn starts on
     // about:blank and therefore still performs exactly one navigation through this same method.
-    const targetUrl = CHATGPT_NEW_CHAT_URL;
+    const targetUrl = chatGptNewChatUrl(this.config.useTemporaryChats);
     if (page.url() !== targetUrl) {
       await withBrowserTurnAbort(page.goto(targetUrl, {
         waitUntil: "domcontentloaded",
@@ -2517,7 +2519,7 @@ export class ChatGptBrowserWorker {
     await captureDiagnostic?.("composer-ready");
     await throwIfChatGptSessionFailureAlert(page);
     await assertAuthenticatedChatGptPage(page);
-    await assertNewChatPage(page);
+    await assertNewChatPage(page, this.config.useTemporaryChats);
     await captureDiagnostic?.("session-verified");
     return composer;
   }
@@ -3212,8 +3214,11 @@ export class ChatGptBrowserWorker {
     abortSignal?: AbortSignal,
   ): Promise<string> {
     const titles = await this.connectorMentionRowTitles(menuRows, abortSignal);
+    const temporaryChatHint = this.config.useTemporaryChats
+      ? "; if this connector is unavailable in Temporary Chat, turn off Settings → Temporary Chat in the launcher and retry"
+      : "";
     if (titles.length === 0) {
-      return `ChatGPT connector menu did not open after ${triggerAttempts} complete mention trigger attempt(s)`;
+      return `ChatGPT connector menu did not open after ${triggerAttempts} complete mention trigger attempt(s)` + temporaryChatHint;
     }
     if (this.config.appName === CHATGPT_CONNECTOR_NAME && titles.includes(DEV_CHATGPT_CONNECTOR_NAME)) {
       return `ChatGPT exposes the isolated DEV connector ${JSON.stringify(DEV_CHATGPT_CONNECTOR_NAME)},`
@@ -3226,7 +3231,7 @@ export class ChatGptBrowserWorker {
     }
     return `ChatGPT connector menu opened but exposed no row named ${JSON.stringify(this.config.appName)}`
       + ` after ${triggerAttempts} complete mention trigger attempt(s)`
-      + `; create a connector with that exact name before retrying`;
+      + `; create a connector with that exact name before retrying` + temporaryChatHint;
   }
 
   private async clearChatGptComposerState(page: Page): Promise<void> {

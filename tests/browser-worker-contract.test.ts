@@ -524,12 +524,26 @@ test("chat preparation preserves page-read and composer errors instead of report
   }).prepareChatSurface;
   for (const error of [new ChatGptBrowserObservationTimeoutError(5_000), new Error("ChatGPT composer is unavailable")]) {
     const page = { url: () => "https://chatgpt.com/" };
-    await expect(prepare.call({ activeComposer: async () => { throw error; } }, page)).rejects.toBe(error);
+    await expect(prepare.call({ config: { useTemporaryChats: false }, activeComposer: async () => { throw error; } }, page)).rejects.toBe(error);
+  }
+});
+
+test("missing connectors in Temporary Chat explain how to return to ordinary chats", async () => {
+  const worker = Object.create(ChatGptBrowserWorker.prototype) as any;
+  for (const useTemporaryChats of [false, true]) {
+    worker.config = { useTemporaryChats, appName: "Codex Native2 DEV" };
+    for (const titles of [[], ["Another connector"]]) {
+      worker.connectorMentionRowTitles = async () => titles;
+      const message = await worker.connectorMentionFailure({}, 1);
+      expect(message.includes("turn off Settings → Temporary Chat")).toBe(useTemporaryChats);
+      expect(message).toContain(titles.length ? "no row named" : "menu did not open");
+    }
   }
 });
 
 test("cancelled chat preparation stops navigation and composer polling", async () => {
   const worker = Object.create(ChatGptBrowserWorker.prototype) as any;
+  worker.config = { useTemporaryChats: false };
   for (const stage of ["before-navigation", "navigation", "composer"]) {
     const controller = new AbortController();
     let navigations = 0;

@@ -22,6 +22,7 @@ export interface LauncherState {
   composerPredictionsEnabled: boolean;
   experimentalSkillAttachments: boolean;
   experimentalFreshConversationPerTurn: boolean;
+  useTemporaryChats: boolean;
   zeroRiskProEnabled: boolean;
   sidebarOpen: boolean;
   sidebarWidth: number;
@@ -179,6 +180,7 @@ export interface LauncherApi {
   setSkillAttachments(enabled: boolean): Promise<LauncherState>;
   setAutoApproveToolCalls(enabled: boolean): Promise<LauncherState>;
   setFreshConversationPerTurn(enabled: boolean): Promise<LauncherState>;
+  setTemporaryChats(enabled: boolean): Promise<LauncherState>;
   setZeroRiskPro(enabled: boolean): Promise<LauncherState>;
   setBrowserInteractionMode(mode: BrowserInteractionMode): Promise<{
     state: LauncherState;

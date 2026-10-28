@@ -149,7 +149,7 @@ codex-chatgpt-web subagents native
 Full モードを有効にする前に、完全な[アーキテクチャ](docs/architecture.md)と
 [セキュリティモデル](docs/security-model.md)をお読みください。脆弱性は [SECURITY.md](SECURITY.md) から報告してください。
 
-タスクには常に通常のチャットを使い、会話は ChatGPT の履歴に残ります。プロンプトは OpenAI によって処理されます。
+タスクには初期設定で通常のチャットを使い、会話は ChatGPT の履歴に残ります。設定で「一時チャット」を有効にできます。コネクタが使えない場合はオフにしてください。プロンプトは引き続き OpenAI によって処理されます。
 
 検証範囲：[リリース検証](docs/release-validation.md)。
 

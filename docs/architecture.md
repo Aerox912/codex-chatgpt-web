@@ -150,12 +150,15 @@ Top-level `model_context_window` raises only the proxied native rows' advertised
 Codex to apply its own configured context override without clamping. Routed ChatGPT Web models
 retain their measured adapter-owned limits.
 
-Automatic and Zero Risk task turns always use ordinary saved conversations. Sign-in, account
-inspection, connector verification and smoke tests use the same new-chat surface. The old
-`useSavedChats` preference is removed when loading configuration; it cannot select Temporary Chat.
-This is independent of conversation reuse. Saved history does not authorize reopening an arbitrary
-ChatGPT conversation. Compaction still starts the next context epoch in a new chat. ChatGPT memory
-and custom instructions may apply to these conversations.
+Automatic and Zero Risk task turns use ordinary saved conversations by default. The explicit
+`useTemporaryChats` preference (`setup --temporary-chats`; `--ordinary-chats` to disable) selects
+Temporary Chat for task turns, connector verification and smoke tests. Sign-in and account
+inspection still use ordinary chats. The old `useSavedChats` preference is discarded and cannot
+enable the new option. Changing modes retires idle retained task surfaces after setup succeeds;
+the launcher refuses to change it during active browser work. This is independent of conversation
+reuse. Saved history does not authorize reopening an arbitrary ChatGPT conversation. Compaction
+still starts the next context epoch in a new chat. ChatGPT memory and custom instructions may apply
+in either mode.
 
 Automatic mode also offers an explicit **New browser chat for each turn** setting, disabled by
 default (`setup --fresh-conversation`; `--retained-conversation` restores reuse). Each native turn

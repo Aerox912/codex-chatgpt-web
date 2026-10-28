@@ -193,7 +193,7 @@ control, composer, send button, new chat, or an operational viewport usually
 mean that the ChatGPT UI did not expose a structure the bridge can safely prove.
 
 1. Update to the latest release.
-2. Confirm that a new ordinary chat can be opened in the launcher and that the account is not
+2. Confirm that a new chat in the selected mode can be opened in the launcher and that the account is not
    showing a login, onboarding, capacity, or rate-limit dialog.
 3. Run the smoke test one more time with the launcher visible.
 4. If the same structural error remains, do not keep retrying. Export a safe log and open a focused
@@ -207,10 +207,11 @@ are lost in long Free-account chats, turn Bigger Context off and restart Codex.
 
 ## Personalization or connector controls are not found
 
-Current builds always use ordinary ChatGPT chats, including connector verification. If an older
-build fails in Temporary Chat, update, finish active tasks, and restart the launcher and Codex.
-The old chat-mode setting is no longer used. Task conversations remain in ChatGPT history;
-ChatGPT memory and custom instructions may apply.
+Ordinary chats are the default. If **Settings → Temporary Chat** is enabled and your connector is
+missing there, finish active tasks, turn that setting off, and retry. Connector availability can
+differ between accounts and chat modes. The launcher does not silently change modes. The retired
+saved-chat setting does not enable Temporary Chat. ChatGPT memory and custom instructions may
+apply in either mode.
 
 In ChatGPT, open **Settings → General → Language** and choose **English** explicitly, then reload
 ChatGPT inside the launcher and retry once. Some browser controls depend on English labels;
