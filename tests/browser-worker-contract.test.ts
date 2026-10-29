@@ -4168,6 +4168,7 @@ test("the daemon prefers the browser helper that shipped beside its own entrypoi
 
 test("multipart observation surfaces Stopped thinking on its first observation even with live MCP work", async () => {
   const absent = { last() { return this; }, filter() { return this; }, isVisible: async () => false,
+    evaluateAll: async () => false,
     getByText() { return this; }, getByTestId() { return this; } };
   const page = { isClosed: () => false, locator: () => absent };
   const binding = { identity: "group:assistant:current", locator: absent };
