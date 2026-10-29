@@ -62,6 +62,23 @@ test("composer and effort selectors exclude unrelated editable fields and menu b
   expect(matches(CHATGPT_EFFORT_CONTROL_SELECTOR)).toEqual(["effort", "model", "power-effort"]);
 });
 
+// 2026-10-29, #924: the trigger lost all three older identifying attributes.
+test.each(["选择 ChatGPT 模型", "Select ChatGPT model", ""])("inline reasoning control is structural, independent of label (%s)", label => {
+  const { createDocument } = require("@mixmark-io/domino") as { createDocument(html: string): Document };
+  const document = createDocument(`<form>
+    <button type="button" aria-label="${label}" aria-haspopup="menu"
+      data-composer-navigation-target="reasoning" data-selected-reasoning-effort="max" id="inline">思考强度</button>
+    <button aria-haspopup="menu" data-composer-navigation-target="reasoning"></button>
+    <button aria-haspopup="menu" data-selected-reasoning-effort="max"></button>
+    <button data-composer-navigation-target="reasoning" data-selected-reasoning-effort="max"></button>
+    <button aria-haspopup="dialog" data-composer-navigation-target="reasoning" data-selected-reasoning-effort="max"></button>
+    <button aria-haspopup="menu" data-composer-navigation-target="attachments" data-selected-reasoning-effort="max"></button>
+    <button aria-label="${label}" aria-haspopup="menu"></button>
+    <div role="button" aria-haspopup="menu" data-composer-navigation-target="reasoning" data-selected-reasoning-effort="max"></div>
+  </form>`);
+  expect(Array.from(document.querySelectorAll(CHATGPT_EFFORT_CONTROL_SELECTOR)).map(element => element.id)).toEqual(["inline"]);
+});
+
 test("effort activation binds the owned menu after the control opens", async () => {
   let opened = false;
   const ownedMenu = { isVisible: async () => opened };
