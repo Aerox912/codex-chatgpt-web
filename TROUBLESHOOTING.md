@@ -205,6 +205,22 @@ Luna and Think use rolling summaries with **Settings → Bigger Context** off. E
 Context keeps the task conversation and sends large histories in parts. If earlier details
 are lost in long Free-account chats, turn Bigger Context off and restart Codex.
 
+## A single message is too large for Bigger Context
+
+`No ChatGPT effort available to this account can carry a Bigger Context stage` is a local
+preflight rejection, before that message is sent to ChatGPT. Bigger Context distributes complete
+messages and tool results across stages; it does not split an individual message or JSON record.
+Increasing the advertised context window or the compaction threshold does not enlarge a stage.
+
+Keep the context limits supplied by the launcher. Split large inputs into smaller messages before
+submission, or put source material in files and ask Codex to read the relevant sections. Keep
+individual tool results bounded too. If an oversized record is already in the task history,
+compact the task or start a fresh task with smaller inputs.
+
+If this still fails on an unmodified release with the default limits, open a new issue with
+**Activity → Export safe log**, the failure time, account tier, model and effort. Distinguish the
+local preflight error from a message-size error shown by ChatGPT after submission.
+
 ## Personalization or connector controls are not found
 
 **Settings → Temporary Chat** is on by default. If your connector is
