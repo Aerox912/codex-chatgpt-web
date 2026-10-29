@@ -206,15 +206,18 @@ test("effort activation fails closed when neither event exposes a structural sur
     .rejects.toThrow("did not expose its owned menu or structural slider");
 });
 
-test("a complete authenticated composer with no effort selector is Luna-only", async () => {
+test("an authenticated composer without recognized model controls cannot be classified as Luna-only", async () => {
   const effortButton = {
     filter() { return this; },
+    or() { return this; },
+    count: async () => 0,
     last() { return this; },
     isVisible: async () => false,
   };
   const composerForm = {
     count: async () => 1,
     locator: () => effortButton,
+    getByRole: () => effortButton,
   };
   const composer = {
     filter() { return this; },
@@ -231,13 +234,15 @@ test("a complete authenticated composer with no effort selector is Luna-only", a
   await expect(detectChatGptAccountCapabilities(page as never, {
     selectorTimeoutMs: 100,
     stableAbsenceMs: 0,
-  })).resolves.toEqual({ solAvailable: false, extraHighAvailable: false, proAvailable: false });
+  })).rejects.toThrow("Could not identify ChatGPT's model controls");
 });
 
-test("a transient effort control does not turn a Luna-only account into Sol", async () => {
+test("a transient effort control cannot establish either paid or Luna capabilities", async () => {
   let visibilityReads = 0;
   const effortButton = {
     filter() { return this; },
+    or() { return this; },
+    count: async () => 0,
     last() { return this; },
     isVisible: async () => {
       visibilityReads += 1;
@@ -247,6 +252,7 @@ test("a transient effort control does not turn a Luna-only account into Sol", as
   const composerForm = {
     count: async () => 1,
     locator: () => effortButton,
+    getByRole: () => effortButton,
   };
   const composers = {
     filter() { return this; },
@@ -262,7 +268,7 @@ test("a transient effort control does not turn a Luna-only account into Sol", as
   await expect(detectChatGptAccountCapabilities(page as never, {
     selectorTimeoutMs: 100,
     stableAbsenceMs: 0,
-  })).resolves.toEqual({ solAvailable: false, extraHighAvailable: false, proAvailable: false });
+  })).rejects.toThrow("Could not identify ChatGPT's model controls");
   expect(visibilityReads).toBe(2);
 });
 
