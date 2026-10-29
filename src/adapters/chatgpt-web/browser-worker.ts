@@ -56,24 +56,36 @@ import {
   assertAuthenticatedChatGptPage,
   assertNewChatPage,
   chatGptNewChatUrl,
+  detectChatGptAccountCapabilities,
+  readChatGptEffortCapabilities,
+  waitForChatGptEffortControl,
+} from "../../chatgpt-session";
+import {
   chatGptAssistantTurnSelector,
   chatGptTurnContainerSelector,
   CHATGPT_ASSISTANT_TURN_SELECTOR,
   CHATGPT_COMPLETION_ACTION_SELECTOR,
+  CHATGPT_USER_TURN_SELECTOR,
+} from "../../chatgpt-ui/turns";
+import {
+  chatGptStopButton,
+  chatGptThinkButtons,
   CHATGPT_COMPOSER_SELECTOR,
+  CHATGPT_STOP_BUTTON_SELECTOR,
+  CHATGPT_SEND_BUTTON_SELECTOR,
+} from "../../chatgpt-ui/composer";
+import {
+  CHATGPT_UI_VARIANT_SELECTORS,
+  chatGptUiVariantCounts,
+  validateChatGptUiVariantCounts,
+} from "../../chatgpt-ui/observations";
+import {
   CHATGPT_EFFORT_CONTROL_SELECTOR,
   CHATGPT_EFFORT_ITEM_SELECTOR,
   CHATGPT_EFFORT_SLIDER_CONTAINER_SELECTOR,
-  CHATGPT_STOP_BUTTON_SELECTOR,
-  CHATGPT_THINK_BUTTON_SELECTOR,
-  CHATGPT_SEND_BUTTON_SELECTOR,
-  CHATGPT_USER_TURN_SELECTOR,
   activateChatGptEffortMenu,
-  detectChatGptAccountCapabilities,
-  readChatGptEffortCapabilities,
   readChatGptEffortSnapshot,
-  waitForChatGptEffortControl,
-} from "../../chatgpt-session";
+} from "../../chatgpt-ui/model-picker";
 import { loginVerificationMarkerPath } from "../../browser-login";
 import {
   connectLauncherBrowserHost,
@@ -1129,11 +1141,6 @@ export function chatGptTurnIsComplete(state: {
     && state.completionActionVisible;
 }
 
-export function chatGptStopButton(page: Page): Locator {
-  // A hidden copy from another layout must not hide a visible generation control.
-  return page.locator(CHATGPT_STOP_BUTTON_SELECTOR).filter({ visible: true }).last();
-}
-
 export type ChatGptSubmissionEvidence = "user_turn" | "assistant_turn" | "generation_running" | "mcp_tool_call";
 
 export function chatGptSubmissionEvidence(state: {
@@ -1146,15 +1153,6 @@ export function chatGptSubmissionEvidence(state: {
   if (chatGptNewTurnIdentity(state.initialTurnIdentities, state.responseIdentities)) return "assistant_turn";
   if (state.generationRunning) return "generation_running";
   return undefined;
-}
-
-export function chatGptThinkButtons(composer: Locator): Locator {
-  const form = composer.locator("xpath=ancestor::form[1]");
-  // Keep the semantic button used before 6.1.8 alongside the captured localized
-  // glyph. Both identify the same action; never substitute a composer command.
-  return form.locator(CHATGPT_THINK_BUTTON_SELECTOR)
-    .or(form.getByRole("button", { name: "Think", exact: true }))
-    .filter({ visible: true });
 }
 
 export async function setChatGptThinkMode(
@@ -1604,7 +1602,7 @@ class ChatGptBrowserDiagnostics {
       const stem = `${sequence}-${browserDiagnosticCheckpoint(checkpoint)}`;
       const includeScreenshot = process.env.CODEX_CHATGPT_WEB_BROWSER_DIAGNOSTICS === "1";
       const failed = /turn-failed|response-stalled/.test(checkpoint);
-      const [screenshotResult, stateResult, structureResult, interactionResult] = await Promise.allSettled([
+      const [screenshotResult, stateResult, structureResult, interactionResult, variantsResult] = await Promise.allSettled([
         includeScreenshot
           ? page.screenshot({ animations: "disabled", caret: "hide", timeout: 5_000, type: "png" })
           : Promise.resolve(undefined),
@@ -1776,6 +1774,8 @@ class ChatGptBrowserDiagnostics {
           selector: CHATGPT_EFFORT_CONTROL_SELECTOR,
           sampleFrames: failed,
         })),
+        withChatGptBrowserObservationTimeout(page.evaluate(chatGptUiVariantCounts, CHATGPT_UI_VARIANT_SELECTORS))
+          .then(validateChatGptUiVariantCounts),
       ]);
       const capturedAt = new Date().toISOString();
       if (screenshotResult.status === "fulfilled" && screenshotResult.value) {
@@ -1784,6 +1784,7 @@ class ChatGptBrowserDiagnostics {
       const captureErrors = Object.fromEntries([
         ...(structureResult.status === "rejected" ? [["responseStructure", "unavailable"]] : []),
         ...(interactionResult.status === "rejected" ? [["interaction", "unavailable"]] : []),
+        ...(variantsResult.status === "rejected" ? [["uiVariants", "unavailable"]] : []),
         ...(screenshotResult.status === "rejected" ? [[
           "screenshot",
           redactChatGptUiDiagnostic(
@@ -1814,9 +1815,17 @@ class ChatGptBrowserDiagnostics {
         ...(interactionResult.status === "fulfilled"
           ? { interaction: sanitizeChatGptBrowserDiagnosticState(interactionResult.value) }
           : {}),
+        ...(variantsResult.status === "fulfilled" ? { uiVariants: variantsResult.value } : {}),
         ...(Object.keys(captureErrors).length > 0 ? { captureErrors } : {}),
       }, null, 2)}\n`);
       if (failed) {
+        if (variantsResult.status === "fulfilled") {
+          // Keep this small record separate from page_state so safe-log truncation
+          // of a large page snapshot cannot erase evidence of retained UI shapes.
+          console.info(`[chatgpt-web] ui_variants ${JSON.stringify({
+            traceId: this.traceId, checkpoint: stem, variants: variantsResult.value,
+          })}`);
+        }
         console.info(`[chatgpt-web] page_state ${JSON.stringify({
           traceId: this.traceId, checkpoint: stem,
           ...(stateResult.status === "fulfilled"

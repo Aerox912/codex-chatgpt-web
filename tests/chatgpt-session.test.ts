@@ -1,11 +1,13 @@
 import { expect, test } from "bun:test";
 import { ChatGptBrowserWorker } from "../src/adapters/chatgpt-web/browser-worker";
+import { CHATGPT_COMPOSER_SELECTOR } from "../src/chatgpt-ui/composer";
 import {
-  CHATGPT_COMPOSER_SELECTOR,
   CHATGPT_EFFORT_CONTROL_SELECTOR,
   CHATGPT_EFFORT_MENU_SELECTOR,
   CHATGPT_EFFORT_SLIDER_CONTAINER_SELECTOR,
   activateChatGptEffortMenu,
+} from "../src/chatgpt-ui/model-picker";
+import {
   assertNewChatPage,
   chatGptNewChatUrl,
   CHATGPT_NEW_CHAT_URL,

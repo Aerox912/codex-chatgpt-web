@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Locator, Page } from "playwright-core";
-import { parseChatGptModelAnnouncement, readChatGptModelAnnouncements } from "../../chatgpt-session";
+import { parseChatGptModelAnnouncement, readChatGptModelAnnouncements } from "../../chatgpt-ui/model-picker";
 
 export type ChatGptLimitsPlan = "pro_100" | "pro_200" | "unsupported";
 export type ChatGptUsageModel = "gpt-6-pro" | "gpt-5.6-pro" | "pro-unknown" | "other";

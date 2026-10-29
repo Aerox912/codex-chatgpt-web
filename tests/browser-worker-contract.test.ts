@@ -11,7 +11,8 @@ import { chatGptStoppedThinkingError } from "../src/adapters/chatgpt-web/adapter
 import { CHATGPT_STOPPED_THINKING_LABELS } from "../src/adapters/chatgpt-web/ui-labels";
 import { CHATGPT_WEB_MODEL_ID } from "../src/adapters/chatgpt-web/model";
 import { CHATGPT_CONNECTOR_NAME, DEV_CHATGPT_CONNECTOR_NAME, defaultChromeExecutable, legacyChatGptConnectorMigrationMessage } from "../src/config";
-import { CHATGPT_SEND_BUTTON_SELECTOR, CHATGPT_THINK_BUTTON_SELECTOR, parseChatGptEffortSliderState } from "../src/chatgpt-session";
+import { CHATGPT_SEND_BUTTON_SELECTOR, CHATGPT_THINK_BUTTON_SELECTOR } from "../src/chatgpt-ui/composer";
+import { parseChatGptEffortSliderState } from "../src/chatgpt-ui/model-picker";
 import { ChatGptExternalTurnProgress, chatGptExternalToolCallsAreInFlight } from "../src/adapters/chatgpt-web/turn-progress";
 import type { CodexProviderConfig } from "../src/types";
 import { compileChatGptWebPrompt, formatChatGptWebMultipartCommit, formatChatGptWebMultipartStage } from "../src/adapters/chatgpt-web/prompt";

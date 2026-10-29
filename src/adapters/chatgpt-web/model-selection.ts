@@ -1,8 +1,15 @@
-import { activateChatGptEffortMenu, parseChatGptEffortSliderState, parseChatGptModelAnnouncement, readChatGptModelAnnouncements } from "../../chatgpt-session";
+import {
+  type ChatGptEffortActivation,
+  chatGptModelOption,
+  openChatGptModelRows,
+  parseChatGptEffortSliderState,
+  parseChatGptModelAnnouncement,
+  readChatGptModelAnnouncements,
+} from "../../chatgpt-ui/model-picker";
 import type { ChatGptWebAdapterEffort, ChatGptWebModelFamily } from "../../chatgpt-web-models";
 import { ChatGptWebAdapterError } from "./adapter-error";
 
-type EffortMenu = Awaited<ReturnType<typeof activateChatGptEffortMenu>>;
+type EffortMenu = ChatGptEffortActivation;
 
 function familyError(family: ChatGptWebModelFamily, cause?: unknown): ChatGptWebAdapterError {
   return new ChatGptWebAdapterError(
@@ -11,22 +18,9 @@ function familyError(family: ChatGptWebModelFamily, cause?: unknown): ChatGptWeb
   );
 }
 
-async function familyOption(menu: EffortMenu, family: ChatGptWebModelFamily, effort?: ChatGptWebAdapterEffort) {
-  // The explicit picker lists Sol and Astra together, beside GPT-6.1. Select
-  // the requested name before consulting the legacy shared-family selector.
-  if (family === "6") {
-    const explicit = menu.menu.getByRole("menuitemradio", {
-      name: effort === "max" ? /^GPT[-\s]?6\s+Astra$/i : /^GPT[-\s]?6\s+Sol$/i,
-      exact: true, includeHidden: true,
-    });
-    if (await explicit.count() > 0) return explicit;
-  }
-  return menu.menu.getByRole("menuitemradio", {
-    name: family === "5.6" ? /^GPT[-\s]?5\.6\s+Sol(?:\s+Pro)?$/i
-      // Simplified/Traditional Chinese and Japanese share 最新; Korean uses 최신.
-      : /^(?:Latest|最新|최신|(?:GPT[-\s]?)?6(?:\s+Astra)?(?:\s+Pro)?)$/i,
-    exact: true,
-    includeHidden: true,
+function familyOption(menu: EffortMenu, family: ChatGptWebModelFamily, effort?: ChatGptWebAdapterEffort) {
+  return chatGptModelOption(menu.menu, {
+    version: family, name: family === "6" && effort === "max" ? "astra" : "sol",
   });
 }
 
@@ -41,21 +35,7 @@ export async function selectChatGptModelFamily(
     const option = await familyOption(menu, family, effort);
     if (await option.count() > 1) throw familyError(family);
     if (await option.count() === 1 && await option.getAttribute("aria-checked") === "true") return menu;
-    // The attached radio rows are inert while this composer-owned advanced view is collapsed.
-    const powerView = menu.menu.locator('[data-model-picker-view]');
-    if (await powerView.count() === 1) {
-      const view = await powerView.getAttribute("data-model-picker-view");
-      if (view === "simple") {
-        const trigger = powerView.locator('[data-model-picker-view-toggle="true"]:not([aria-hidden="true"])')
-          .filter({ visible: true });
-        if (await trigger.count() !== 1) throw familyError(family);
-        await trigger.click({ timeout: 5_000 });
-      } else if (view !== "advanced") throw familyError(family);
-    } else {
-      const trigger = menu.menu.locator('[role="menuitem"][aria-expanded][aria-hidden="false"]');
-      if (await powerView.count() !== 0 || await trigger.count() !== 1) throw familyError(family);
-      if (await trigger.getAttribute("aria-expanded") === "false") await trigger.click({ timeout: 5_000 });
-    }
+    await openChatGptModelRows(menu.menu);
     await option.waitFor({ state: "visible", timeout: 5_000 });
     await option.click({ timeout: 5_000 });
     // Choosing a family returns the open picker to its slider. Keep that surface:
